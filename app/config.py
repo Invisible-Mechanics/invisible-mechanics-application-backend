@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # How long an unconsumed magic link / OTP code stays valid.
     magic_link_ttl_min: int = 15
     # How long a session JWT (cookie) stays valid after verify.
-    session_ttl_days: int = 30
+    session_ttl_hours: int = 2
 
     web_origin: str = "http://localhost:3000"
 

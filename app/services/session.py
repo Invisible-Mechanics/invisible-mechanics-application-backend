@@ -18,12 +18,19 @@ class SessionError(Exception):
     pass
 
 
-def issue_session_jwt(user_id: uuid.UUID, email: str, role: str) -> tuple[str, datetime]:
+def issue_session_jwt(
+    user_id: uuid.UUID,
+    email: str,
+    role: str,
+    *,
+    name: str | None = None,
+    phone: str | None = None,
+) -> tuple[str, datetime]:
     settings = get_settings()
     if not settings.app_jwt_secret:
         raise SessionError("APP_JWT_SECRET not configured")
     now = datetime.now(UTC)
-    exp = now + timedelta(days=settings.session_ttl_days)
+    exp = now + timedelta(hours=settings.session_ttl_hours)
     payload = {
         "sub": str(user_id),
         "email": email,
@@ -31,6 +38,10 @@ def issue_session_jwt(user_id: uuid.UUID, email: str, role: str) -> tuple[str, d
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
+    if name:
+        payload["name"] = name
+    if phone:
+        payload["phone"] = phone
     return jwt.encode(payload, settings.app_jwt_secret, algorithm=ALGORITHM), exp
 
 

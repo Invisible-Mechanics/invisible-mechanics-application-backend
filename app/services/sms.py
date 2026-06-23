@@ -1,8 +1,12 @@
 from dataclasses import dataclass, field
+import logging
 
 import httpx
 
 from app.config import Settings, get_settings
+
+logger = logging.getLogger(__name__)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 @dataclass
@@ -34,10 +38,10 @@ class MSG91SMSClient(SMSClient):
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(
                     "https://control.msg91.com/api/v5/otp",
+                    headers={"authkey": self._settings.msg91_auth_key},
                     params={
                         "template_id": self._settings.msg91_template_id,
                         "mobile": phone,
-                        "authkey": self._settings.msg91_auth_key,
                         "otp": code,
                         "sender": self._settings.msg91_sender_id,
                         "otp_expiry": self._settings.msg91_otp_expiry_min,
@@ -46,8 +50,17 @@ class MSG91SMSClient(SMSClient):
             if response.status_code >= 400:
                 return SMSResult(ok=False, error=response.text[:500])
             data = response.json()
-            if str(data.get("type", "")).lower() == "error":
-                return SMSResult(ok=False, error=str(data.get("message", "MSG91 error")))
+            msg91_type = str(data.get("type", "")).lower()
+            msg91_message = str(data.get("message", ""))
+            logger.info(
+                "msg91 otp response phone_tail=%s status=%s type=%s message=%s",
+                phone[-4:],
+                response.status_code,
+                msg91_type or "-",
+                msg91_message[:200],
+            )
+            if msg91_type == "error":
+                return SMSResult(ok=False, error=msg91_message or "MSG91 error")
             return SMSResult(ok=True)
         except Exception as exc:
             return SMSResult(ok=False, error=str(exc))

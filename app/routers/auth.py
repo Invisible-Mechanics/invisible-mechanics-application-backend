@@ -239,7 +239,13 @@ async def _consume_and_issue(
         db.add(user)
         await db.flush()
 
-    token, expires_at = issue_session_jwt(user.id, user.email, user.role)
+    token, expires_at = issue_session_jwt(
+        user.id,
+        user.email,
+        user.role,
+        name=user.name,
+        phone=user.phone,
+    )
     await db.commit()
     return LoginVerifyOut(
         access_token=token,
