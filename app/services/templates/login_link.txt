@@ -1,0 +1,10 @@
+Sign in to Invisible Mechanics
+
+Click the link below to sign in (valid for {expires_min} minutes):
+{magic_link}
+
+Or enter this code on the login page: {code}
+
+If you didn't request this, you can safely ignore this email.
+
+— Invisible Mechanics
