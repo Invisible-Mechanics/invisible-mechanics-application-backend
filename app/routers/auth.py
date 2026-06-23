@@ -1,16 +1,17 @@
 """Magic-link + 6-digit-code login.
 
 Flow:
-  1. POST /auth/request {email, next?}
+  1. POST /auth/request {email, next?} OR {phone, next?}
      -> upsert user; mint a random URL token + a 6-digit code; store
-        SHA-256 hashes in auth_tokens; email both via Resend.
-  2a. POST /auth/verify {email, code}            (cross-device path)
+        SHA-256 hashes in auth_tokens; email or SMS the challenge.
+  2a. POST /auth/verify {email, code} OR {phone, code}
   2b. POST /auth/verify-link {token}             (same-device link click)
      -> verify hash, mark consumed, issue our HS256 session JWT.
 """
 
 import hashlib
 import logging
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
@@ -31,6 +32,7 @@ from app.schemas import (
 )
 from app.services.email import EmailClient, get_email_client, render_template
 from app.services.session import issue_session_jwt
+from app.services.sms import SMSClient, get_sms_client
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,19 @@ def _generate_token() -> str:
 
 def _normalize_email(email: str) -> str:
     return email.strip().lower()
+
+
+def _normalize_phone(phone: str) -> str:
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) == 10:
+        digits = f"91{digits}"
+    if len(digits) == 12 and digits.startswith("91"):
+        return digits
+    raise HTTPException(status_code=422, detail="enter a valid Indian mobile number")
+
+
+def _phone_email(phone: str) -> str:
+    return f"{phone}@phone.invisiblemechanics.com"
 
 
 def _safe_next(value: str | None) -> str | None:
@@ -101,14 +116,29 @@ async def _send_login_email(
         logger.warning("login email send failed to=%s error=%s", to, result.error)
 
 
+async def _send_login_sms(
+    sms_client: SMSClient,
+    *,
+    phone: str,
+    code: str,
+) -> None:
+    result = await sms_client.send_otp(phone=phone, code=code)
+    if not result.ok:
+        logger.warning("login sms send failed to=%s error=%s", phone, result.error)
+        raise HTTPException(status_code=502, detail="could not send OTP")
+
+
 @router.post("/request", response_model=LoginRequestOut)
 async def request_login(
     body: LoginRequestIn,
     db: AsyncSession = Depends(get_db),
     email_client: EmailClient = Depends(get_email_client),
+    sms_client: SMSClient = Depends(get_sms_client),
 ) -> LoginRequestOut:
     settings = get_settings()
-    email = _normalize_email(body.email)
+    is_sms = body.phone is not None
+    phone = _normalize_phone(body.phone) if body.phone else None
+    email = _phone_email(phone) if phone else _normalize_email(str(body.email))
     next_path = _safe_next(body.next)
     now = datetime.now(UTC)
 
@@ -118,7 +148,8 @@ async def request_login(
     recent = (
         await db.execute(
             select(AuthToken)
-            .where(AuthToken.email == email)
+            .where(AuthToken.phone == phone if is_sms else AuthToken.email == email)
+            .where(AuthToken.channel == ("sms" if is_sms else "email"))
             .where(AuthToken.consumed_at.is_(None))
             .where(AuthToken.expires_at > now)
             .order_by(AuthToken.created_at.desc())
@@ -134,21 +165,32 @@ async def request_login(
         if (now - created_at).total_seconds() < MIN_RESEND_INTERVAL_SEC:
             return LoginRequestOut()
 
-    # Upsert the user. Email is the only identifier we have at this stage.
-    user = (
-        await db.execute(select(User).where(User.email == email))
-    ).scalar_one_or_none()
+    # Upsert the user by the identifier used for this login request.
+    user_query = (
+        select(User).where(User.phone == phone)
+        if is_sms
+        else select(User).where(User.email == email)
+    )
+    user = (await db.execute(user_query)).scalar_one_or_none()
     if user is None:
-        user = User(email=email, role="student", source="magic_link")
+        user = User(
+            email=email,
+            phone=phone,
+            role="student",
+            source="sms_otp" if is_sms else "magic_link",
+        )
         db.add(user)
         await db.flush()
+    elif is_sms and user.phone != phone:
+        user.phone = phone
 
     # Invalidate any prior unconsumed tokens for this email so the most recent
     # request is the only valid one. Cheaper than per-row deletes and keeps the
     # log around for audit.
     await db.execute(
         update(AuthToken)
-        .where(AuthToken.email == email)
+        .where(AuthToken.phone == phone if is_sms else AuthToken.email == email)
+        .where(AuthToken.channel == ("sms" if is_sms else "email"))
         .where(AuthToken.consumed_at.is_(None))
         .values(consumed_at=now)
     )
@@ -156,7 +198,9 @@ async def request_login(
     code = _generate_code()
     token = _generate_token()
     row = AuthToken(
+        channel="sms" if is_sms else "email",
         email=email,
+        phone=phone,
         token_hash=_sha256(token),
         code_hash=_sha256(code),
         next_path=next_path,
@@ -165,13 +209,16 @@ async def request_login(
     db.add(row)
     await db.commit()
 
-    await _send_login_email(
-        email_client,
-        to=email,
-        token=token,
-        code=code,
-        next_path=next_path,
-    )
+    if is_sms:
+        await _send_login_sms(sms_client, phone=phone, code=code)
+    else:
+        await _send_login_email(
+            email_client,
+            to=email,
+            token=token,
+            code=code,
+            next_path=next_path,
+        )
     return LoginRequestOut()
 
 
@@ -207,12 +254,15 @@ async def verify_code(
     body: LoginVerifyCodeIn,
     db: AsyncSession = Depends(get_db),
 ) -> LoginVerifyOut:
-    email = _normalize_email(body.email)
+    is_sms = body.phone is not None
+    phone = _normalize_phone(body.phone) if body.phone else None
+    email = _phone_email(phone) if phone else _normalize_email(str(body.email))
     now = datetime.now(UTC)
     row = (
         await db.execute(
             select(AuthToken)
-            .where(AuthToken.email == email)
+            .where(AuthToken.phone == phone if is_sms else AuthToken.email == email)
+            .where(AuthToken.channel == ("sms" if is_sms else "email"))
             .where(AuthToken.consumed_at.is_(None))
             .where(AuthToken.expires_at > now)
             .order_by(AuthToken.created_at.desc())

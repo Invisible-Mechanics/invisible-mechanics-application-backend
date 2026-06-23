@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     mail_from: str = "Invisible Mechanics <onboarding@resend.dev>"
     cron_shared_secret: str = "dev"
 
+    msg91_auth_key: str = ""
+    msg91_sender_id: str = "INVMEC"
+    msg91_template_id: str = "1207178204729889082"
+    msg91_otp_expiry_min: int = 15
+
     # Razorpay (one-time payments). Test keys start with rzp_test_.
     razorpay_key_id: str = ""
     razorpay_key_secret: str = ""

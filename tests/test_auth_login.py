@@ -12,10 +12,15 @@ from sqlalchemy import select
 
 from app.models import AuthToken, User
 from app.services.email import FakeEmailClient, get_email_client
+from app.services.sms import FakeSMSClient, get_sms_client
 
 
 def _override_email(app, fake: FakeEmailClient) -> None:
     app.dependency_overrides[get_email_client] = lambda: fake
+
+
+def _override_sms(app, fake: FakeSMSClient) -> None:
+    app.dependency_overrides[get_sms_client] = lambda: fake
 
 
 def _extract_code_and_token(fake: FakeEmailClient) -> tuple[str, str]:
@@ -74,6 +79,38 @@ async def test_verify_code_happy_path(client, session):
     assert body["user"]["email"] == "alice@example.com"
     assert body["access_token"]
     assert body["next"] is None
+
+
+@pytest.mark.asyncio
+async def test_sms_request_creates_user_and_verifies_code(client, session):
+    fake = FakeSMSClient()
+    _override_sms(client.app, fake)
+
+    r = client.post("/auth/request", json={"phone": "9876543210", "next": "/schedule"})
+    assert r.status_code == 200, r.text
+    assert r.json() == {"ok": True}
+    assert fake.sent == [{"phone": "919876543210", "code": fake.sent[0]["code"]}]
+
+    user = (
+        await session.execute(select(User).where(User.phone == "919876543210"))
+    ).scalar_one_or_none()
+    assert user is not None
+    assert user.role == "student"
+    assert user.email == "919876543210@phone.invisiblemechanics.com"
+
+    row = (
+        await session.execute(select(AuthToken).where(AuthToken.phone == "919876543210"))
+    ).scalar_one()
+    assert row.channel == "sms"
+    assert row.consumed_at is None
+
+    v = client.post(
+        "/auth/verify", json={"phone": "+91 98765 43210", "code": fake.sent[0]["code"]}
+    )
+    assert v.status_code == 200, v.text
+    body = v.json()
+    assert body["user"]["phone"] == "919876543210"
+    assert body["next"] == "/schedule"
 
 
 @pytest.mark.asyncio

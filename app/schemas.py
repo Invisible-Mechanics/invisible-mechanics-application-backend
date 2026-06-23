@@ -3,7 +3,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 
 class _ORM(BaseModel):
@@ -21,8 +21,15 @@ class UserOut(_ORM):
 
 # --- Auth (magic link + 6-digit code) ---
 class LoginRequestIn(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, min_length=10, max_length=20)
     next: str | None = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> "LoginRequestIn":
+        if bool(self.email) == bool(self.phone):
+            raise ValueError("provide exactly one of email or phone")
+        return self
 
 
 class LoginRequestOut(BaseModel):
@@ -30,8 +37,15 @@ class LoginRequestOut(BaseModel):
 
 
 class LoginVerifyCodeIn(BaseModel):
-    email: EmailStr
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, min_length=10, max_length=20)
     code: str = Field(min_length=6, max_length=6)
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> "LoginVerifyCodeIn":
+        if bool(self.email) == bool(self.phone):
+            raise ValueError("provide exactly one of email or phone")
+        return self
 
 
 class LoginVerifyLinkIn(BaseModel):

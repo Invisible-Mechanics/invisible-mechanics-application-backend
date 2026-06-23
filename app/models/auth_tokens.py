@@ -20,7 +20,9 @@ class AuthToken(Base):
     __tablename__ = "auth_tokens"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, default="email")
     email: Mapped[str] = mapped_column(String(320), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     next_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -33,5 +35,6 @@ class AuthToken(Base):
 
     __table_args__ = (
         Index("ix_auth_tokens_email_created_at", "email", "created_at"),
+        Index("ix_auth_tokens_phone_created_at", "phone", "created_at"),
         Index("ix_auth_tokens_token_hash", "token_hash"),
     )
