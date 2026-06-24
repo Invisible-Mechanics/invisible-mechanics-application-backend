@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,11 +122,19 @@ async def _send_login_sms(
     *,
     phone: str,
     code: str,
-) -> None:
+) -> JSONResponse | None:
     result = await sms_client.send_otp(phone=phone, code=code)
     if not result.ok:
-        logger.warning("login sms send failed to=%s error=%s", phone, result.error)
-        raise HTTPException(status_code=502, detail="could not send OTP")
+        logger.warning("login sms send failed phone_tail=%s error=%s", phone[-4:], result.error)
+        return JSONResponse(
+            status_code=502,
+            content={
+                "success": False,
+                "message": "OTP SMS failed",
+                "msg91": result.response_body or {"message": result.error or "MSG91 error"},
+            },
+        )
+    return None
 
 
 @router.post("/request", response_model=LoginRequestOut)
@@ -134,7 +143,7 @@ async def request_login(
     db: AsyncSession = Depends(get_db),
     email_client: EmailClient = Depends(get_email_client),
     sms_client: SMSClient = Depends(get_sms_client),
-) -> LoginRequestOut:
+) -> LoginRequestOut | JSONResponse:
     settings = get_settings()
     is_sms = body.phone is not None
     phone = _normalize_phone(body.phone) if body.phone else None
@@ -210,7 +219,11 @@ async def request_login(
     await db.commit()
 
     if is_sms:
-        await _send_login_sms(sms_client, phone=phone, code=code)
+        failure = await _send_login_sms(sms_client, phone=phone, code=code)
+        if failure is not None:
+            row.consumed_at = datetime.now(UTC)
+            await db.commit()
+            return failure
     else:
         await _send_login_email(
             email_client,

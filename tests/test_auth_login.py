@@ -15,6 +15,17 @@ from app.services.email import FakeEmailClient, get_email_client
 from app.services.sms import FakeSMSClient, get_sms_client
 
 
+class FailingSMSClient(FakeSMSClient):
+    async def send_otp(self, *, phone: str, code: str):
+        from app.services.sms import SMSResult
+
+        return SMSResult(
+            ok=False,
+            error="template mismatch",
+            response_body={"type": "error", "message": "template mismatch"},
+        )
+
+
 def _override_email(app, fake: FakeEmailClient) -> None:
     app.dependency_overrides[get_email_client] = lambda: fake
 
@@ -111,6 +122,23 @@ async def test_sms_request_creates_user_and_verifies_code(client, session):
     body = v.json()
     assert body["user"]["phone"] == "919876543210"
     assert body["next"] == "/schedule"
+
+
+@pytest.mark.asyncio
+async def test_sms_provider_failure_returns_502(client, session):
+    _override_sms(client.app, FailingSMSClient())
+
+    r = client.post("/auth/request", json={"phone": "9876543210"})
+    assert r.status_code == 502, r.text
+    assert r.json() == {
+        "success": False,
+        "message": "OTP SMS failed",
+        "msg91": {"type": "error", "message": "template mismatch"},
+    }
+    row = (
+        await session.execute(select(AuthToken).where(AuthToken.phone == "919876543210"))
+    ).scalar_one()
+    assert row.consumed_at is not None
 
 
 @pytest.mark.asyncio

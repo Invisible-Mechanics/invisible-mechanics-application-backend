@@ -13,6 +13,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 class SMSResult:
     ok: bool
     error: str | None = None
+    response_body: object | None = None
 
 
 class SMSClient:
@@ -34,40 +35,80 @@ class MSG91SMSClient(SMSClient):
         self._settings = settings
 
     async def send_otp(self, *, phone: str, code: str) -> SMSResult:
+        missing = [
+            key
+            for key, value in {
+                "MSG91_AUTH_KEY": self._settings.msg91_auth_key,
+                "MSG91_TEMPLATE_ID": self._settings.msg91_template_id,
+                "MSG91_SENDER_ID": self._settings.msg91_sender_id,
+            }.items()
+            if not value
+        ]
+        if missing:
+            message = f"missing required MSG91 env vars: {', '.join(missing)}"
+            logger.error("msg91 otp config error: %s", message)
+            return SMSResult(ok=False, error=message, response_body={"message": message})
+
+        response_body: object
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(
                     "https://control.msg91.com/api/v5/otp",
-                    headers={"authkey": self._settings.msg91_auth_key},
-                    params={
+                    headers={
+                        "Content-Type": "application/json",
+                        "authkey": self._settings.msg91_auth_key,
+                    },
+                    json={
                         "template_id": self._settings.msg91_template_id,
                         "mobile": phone,
-                        "otp": code,
-                        "sender": self._settings.msg91_sender_id,
-                        "otp_expiry": self._settings.msg91_otp_expiry_min,
+                        "var1": code,
                     },
                 )
-            if response.status_code >= 400:
-                return SMSResult(ok=False, error=response.text[:500])
-            data = response.json()
-            msg91_type = str(data.get("type", "")).lower()
-            msg91_message = str(data.get("message", ""))
+            try:
+                response_body = response.json()
+            except ValueError:
+                response_body = {"raw": response.text}
+
+            logger.info("MSG91 OTP RESPONSE STATUS %s", response.status_code)
             logger.info(
-                "msg91 otp response phone_tail=%s status=%s type=%s message=%s",
+                "MSG91 OTP RESPONSE BODY phone_tail=%s template_id=%s body=%s",
                 phone[-4:],
-                response.status_code,
-                msg91_type or "-",
-                msg91_message[:200],
+                self._settings.msg91_template_id,
+                response_body,
             )
+
+            if response.status_code >= 400:
+                return SMSResult(
+                    ok=False,
+                    error=f"MSG91 HTTP {response.status_code}",
+                    response_body=response_body,
+                )
+            if not isinstance(response_body, dict):
+                return SMSResult(ok=True, response_body=response_body)
+
+            data = response_body
+            msg91_type = str(data.get("type", "")).lower()
+            msg91_message = str(data.get("message", data.get("error", "")))
             if msg91_type == "error":
-                return SMSResult(ok=False, error=msg91_message or "MSG91 error")
-            return SMSResult(ok=True)
+                return SMSResult(
+                    ok=False,
+                    error=msg91_message or "MSG91 error",
+                    response_body=response_body,
+                )
+            return SMSResult(ok=True, response_body=response_body)
         except Exception as exc:
-            return SMSResult(ok=False, error=str(exc))
+            logger.exception(
+                "MSG91 OTP API error phone_tail=%s template_id=%s",
+                phone[-4:],
+                self._settings.msg91_template_id,
+            )
+            return SMSResult(
+                ok=False,
+                error=str(exc),
+                response_body={"message": str(exc)},
+            )
 
 
 def get_sms_client() -> SMSClient:
     settings = get_settings()
-    if settings.msg91_auth_key:
-        return MSG91SMSClient(settings)
-    return FakeSMSClient()
+    return MSG91SMSClient(settings)

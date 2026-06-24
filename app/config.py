@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     msg91_auth_key: str = ""
     msg91_sender_id: str = "INVMEC"
-    msg91_template_id: str = "1207178204729889082"
+    msg91_template_id: str = "6a3bfbc30cdff537840d5983"
     msg91_otp_expiry_min: int = 15
 
     # Razorpay (one-time payments). Test keys start with rzp_test_.
