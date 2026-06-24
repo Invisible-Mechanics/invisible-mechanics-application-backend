@@ -53,15 +53,21 @@ class MSG91SMSClient(SMSClient):
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(
-                    "https://control.msg91.com/api/v5/otp",
+                    "https://control.msg91.com/api/v5/flow/",
                     headers={
                         "Content-Type": "application/json",
                         "authkey": self._settings.msg91_auth_key,
                     },
                     json={
                         "template_id": self._settings.msg91_template_id,
-                        "mobile": phone,
-                        "var1": code,
+                        "sender": self._settings.msg91_sender_id,
+                        "short_url": "0",
+                        "recipients": [
+                            {
+                                "mobiles": phone,
+                                "var1": code,
+                            }
+                        ],
                     },
                 )
             try:
