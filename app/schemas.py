@@ -17,6 +17,24 @@ class UserOut(_ORM):
     name: str | None
     phone: str | None
     role: str
+    target_exam: Literal["jee", "neet"] | None = None
+    grade: Literal["11", "12", "dropper"] | None = None
+    terms_accepted_at: datetime | None = None
+    consent_version: str | None = None
+
+
+class ProfileUpdateIn(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    target_exam: Literal["jee", "neet"] | None = None
+    grade: Literal["11", "12", "dropper"] | None = None
+    accept_terms: bool | None = None
+    consent_version: str | None = Field(default=None, max_length=40)
+
+
+class ProfileUpdateOut(BaseModel):
+    user: UserOut
+    access_token: str
+    expires_at: datetime
 
 
 # --- Auth (magic link + 6-digit code) ---

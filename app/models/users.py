@@ -17,6 +17,12 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(20), index=True)
     role: Mapped[str] = mapped_column(String(20), default="student", nullable=False)
     source: Mapped[str | None] = mapped_column(String(50))
+    target_exam: Mapped[str | None] = mapped_column(String(10))
+    grade: Mapped[str | None] = mapped_column(String(20))
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    phone_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    terms_accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consent_version: Mapped[str | None] = mapped_column(String(40))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
