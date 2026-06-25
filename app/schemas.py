@@ -38,6 +38,33 @@ class ProfileUpdateOut(BaseModel):
     expires_at: datetime
 
 
+class ContactOtpRequestIn(BaseModel):
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, min_length=10, max_length=20)
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> "ContactOtpRequestIn":
+        if bool(self.email) == bool(self.phone):
+            raise ValueError("provide exactly one of email or phone")
+        return self
+
+
+class ContactOtpRequestOut(BaseModel):
+    ok: Literal[True] = True
+
+
+class ContactOtpVerifyIn(BaseModel):
+    email: EmailStr | None = None
+    phone: str | None = Field(default=None, min_length=10, max_length=20)
+    code: str = Field(min_length=6, max_length=6)
+
+    @model_validator(mode="after")
+    def require_one_identifier(self) -> "ContactOtpVerifyIn":
+        if bool(self.email) == bool(self.phone):
+            raise ValueError("provide exactly one of email or phone")
+        return self
+
+
 # --- Auth (magic link + 6-digit code) ---
 class LoginRequestIn(BaseModel):
     email: EmailStr | None = None

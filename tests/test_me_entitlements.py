@@ -4,7 +4,29 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from sqlalchemy import select
 
+import app.routers.me as me_router
+from app.main import app
 from app.models import Entitlement, User
+from app.services.email import get_email_client
+from app.services.sms import get_sms_client
+
+
+class _FakeEmail:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *, to: str, subject: str, html: str, text: str):
+        self.sent.append({"to": to, "subject": subject, "html": html, "text": text})
+        return type("Result", (), {"ok": True, "id": "fake", "error": None})()
+
+
+class _FakeSms:
+    def __init__(self):
+        self.sent = []
+
+    async def send_otp(self, *, phone: str, code: str):
+        self.sent.append({"phone": phone, "code": code})
+        return type("Result", (), {"ok": True, "id": "fake", "error": None, "response_body": None})()
 
 
 @pytest.mark.asyncio
@@ -147,3 +169,73 @@ async def test_phone_placeholder_email_can_be_replaced(client, session, test_use
 async def test_real_email_cannot_be_changed_from_profile(client, test_user):
     r = client.patch("/me", json={"email": "changed@example.com"})
     assert r.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_phone_signup_binds_verified_email_without_new_account(
+    client, session, test_user, monkeypatch
+):
+    fake_email = _FakeEmail()
+    app.dependency_overrides[get_email_client] = lambda: fake_email
+    monkeypatch.setattr(me_router, "_generate_code", lambda: "123456")
+
+    user_id = test_user.id
+    test_user.email = "919399039501@phone.invisiblemechanics.com"
+    test_user.phone = "919399039501"
+    await session.commit()
+
+    r = client.post("/me/contact/request-otp", json={"email": "real.student@example.com"})
+    assert r.status_code == 200, r.text
+    assert fake_email.sent[0]["to"] == "real.student@example.com"
+
+    v = client.post(
+        "/me/contact/verify-otp",
+        json={"email": "real.student@example.com", "code": "123456"},
+    )
+    assert v.status_code == 200, v.text
+    assert v.json()["user"]["email"] == "real.student@example.com"
+    assert v.json()["access_token"]
+
+    session.expire_all()
+    users = (await session.execute(select(User))).scalars().all()
+    assert len(users) == 1
+    user = users[0]
+    assert user.id == user_id
+    assert user.phone == "919399039501"
+    assert user.email == "real.student@example.com"
+    assert user.email_verified_at is not None
+
+
+@pytest.mark.asyncio
+async def test_email_signup_binds_verified_phone_without_new_account(
+    client, session, test_user, monkeypatch
+):
+    fake_sms = _FakeSms()
+    app.dependency_overrides[get_sms_client] = lambda: fake_sms
+    monkeypatch.setattr(me_router, "_generate_code", lambda: "123456")
+
+    user_id = test_user.id
+    test_user.email = "student@example.com"
+    test_user.phone = None
+    await session.commit()
+
+    r = client.post("/me/contact/request-otp", json={"phone": "9399039501"})
+    assert r.status_code == 200, r.text
+    assert fake_sms.sent == [{"phone": "919399039501", "code": "123456"}]
+
+    v = client.post(
+        "/me/contact/verify-otp",
+        json={"phone": "9399039501", "code": "123456"},
+    )
+    assert v.status_code == 200, v.text
+    assert v.json()["user"]["phone"] == "919399039501"
+    assert v.json()["access_token"]
+
+    session.expire_all()
+    users = (await session.execute(select(User))).scalars().all()
+    assert len(users) == 1
+    user = users[0]
+    assert user.id == user_id
+    assert user.email == "student@example.com"
+    assert user.phone == "919399039501"
+    assert user.phone_verified_at is not None

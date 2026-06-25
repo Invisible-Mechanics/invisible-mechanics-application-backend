@@ -25,6 +25,10 @@ def issue_session_jwt(
     *,
     name: str | None = None,
     phone: str | None = None,
+    target_exam: str | None = None,
+    grade: str | None = None,
+    terms_accepted_at: datetime | None = None,
+    onboarded: bool | None = None,
 ) -> tuple[str, datetime]:
     settings = get_settings()
     if not settings.app_jwt_secret:
@@ -42,6 +46,14 @@ def issue_session_jwt(
         payload["name"] = name
     if phone:
         payload["phone"] = phone
+    if target_exam:
+        payload["target_exam"] = target_exam
+    if grade:
+        payload["grade"] = grade
+    if terms_accepted_at:
+        payload["terms_accepted_at"] = terms_accepted_at.isoformat()
+    if onboarded is not None:
+        payload["onboarded"] = onboarded
     return jwt.encode(payload, settings.app_jwt_secret, algorithm=ALGORITHM), exp
 
 

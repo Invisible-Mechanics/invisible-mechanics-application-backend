@@ -258,6 +258,10 @@ async def _consume_and_issue(
         user.role,
         name=user.name,
         phone=user.phone,
+        target_exam=user.target_exam,
+        grade=user.grade,
+        terms_accepted_at=user.terms_accepted_at,
+        onboarded=bool(user.name and user.phone and user.target_exam and user.grade and user.terms_accepted_at),
     )
     await db.commit()
     return LoginVerifyOut(
