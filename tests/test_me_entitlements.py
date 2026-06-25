@@ -186,6 +186,7 @@ async def test_phone_signup_binds_verified_email_without_new_account(
 
     r = client.post("/me/contact/request-otp", json={"email": "real.student@example.com"})
     assert r.status_code == 200, r.text
+    assert r.json()["dev_code"] == "123456"
     assert fake_email.sent[0]["to"] == "real.student@example.com"
 
     v = client.post(
@@ -221,6 +222,7 @@ async def test_email_signup_binds_verified_phone_without_new_account(
 
     r = client.post("/me/contact/request-otp", json={"phone": "9399039501"})
     assert r.status_code == 200, r.text
+    assert r.json()["dev_code"] == "123456"
     assert fake_sms.sent == [{"phone": "919399039501", "code": "123456"}]
 
     v = client.post(

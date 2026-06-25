@@ -159,21 +159,6 @@ async def request_contact_otp(
         if taken is not None:
             raise HTTPException(status_code=409, detail="email is already in use")
 
-    recent = await _recent_bind_token(
-        db,
-        channel=channel,
-        email=email,
-        phone=phone,
-        user=user,
-        now=now,
-    )
-    if recent is not None:
-        created_at = recent.created_at
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-        if (now - created_at).total_seconds() < MIN_RESEND_INTERVAL_SEC:
-            return ContactOtpRequestOut()
-
     await db.execute(
         update(AuthToken)
         .where(AuthToken.channel == channel)
@@ -204,7 +189,7 @@ async def request_contact_otp(
             raise HTTPException(status_code=502, detail="could not send the code, try again")
     else:
         await _send_login_email(email_client, to=email, token=token, code=code, next_path=None)
-    return ContactOtpRequestOut()
+    return ContactOtpRequestOut(dev_code=code)
 
 
 @router.post("/contact/verify-otp", response_model=ProfileUpdateOut)

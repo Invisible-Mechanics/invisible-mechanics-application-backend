@@ -51,6 +51,7 @@ class ContactOtpRequestIn(BaseModel):
 
 class ContactOtpRequestOut(BaseModel):
     ok: Literal[True] = True
+    dev_code: str | None = None
 
 
 class ContactOtpVerifyIn(BaseModel):
@@ -80,6 +81,7 @@ class LoginRequestIn(BaseModel):
 
 class LoginRequestOut(BaseModel):
     ok: Literal[True] = True
+    dev_code: str | None = None
 
 
 class LoginVerifyCodeIn(BaseModel):

@@ -232,7 +232,7 @@ async def request_login(
             code=code,
             next_path=next_path,
         )
-    return LoginRequestOut()
+    return LoginRequestOut(dev_code=code)
 
 
 async def _consume_and_issue(

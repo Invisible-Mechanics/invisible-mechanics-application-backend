@@ -57,7 +57,8 @@ async def test_request_creates_user_and_sends_email(client, session):
         "/auth/request", json={"email": "Newbie@Example.com", "next": "/schedule"}
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"ok": True}
+    assert r.json()["ok"] is True
+    assert len(r.json()["dev_code"]) == 6
 
     user = (
         await session.execute(select(User).where(User.email == "newbie@example.com"))
@@ -99,7 +100,8 @@ async def test_sms_request_creates_user_and_verifies_code(client, session):
 
     r = client.post("/auth/request", json={"phone": "9876543210", "next": "/schedule"})
     assert r.status_code == 200, r.text
-    assert r.json() == {"ok": True}
+    assert r.json()["ok"] is True
+    assert len(r.json()["dev_code"]) == 6
     assert fake.sent == [{"phone": "919876543210", "code": fake.sent[0]["code"]}]
 
     user = (
@@ -217,7 +219,8 @@ async def test_new_request_invalidates_previous(client):
     # confirm the rate-limit path returns ok=True without sending again.
     r = client.post("/auth/request", json={"email": "frank@example.com"})
     assert r.status_code == 200
-    assert r.json() == {"ok": True}
+    assert r.json()["ok"] is True
+    assert r.json()["dev_code"] is None
     assert len(fake.sent) == 1, "rate-limit should have suppressed the second send"
 
     # Original code still works (only one outstanding token).
