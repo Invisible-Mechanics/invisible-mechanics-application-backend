@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 
-from app.models import Cohort, Entitlement, Payment
+from app.models import Cohort, Entitlement, Payment, PaymentEvent
 
 WEBHOOK_SECRET = "test-webhook-secret"  # matches conftest
 
@@ -37,6 +37,7 @@ async def _seed_payment(session, test_user) -> tuple[uuid.UUID, str]:
 def _event(order_id: str) -> bytes:
     return json.dumps(
         {
+            "id": "evt_WEBHOOK",
             "event": "payment.captured",
             "payload": {
                 "payment": {"entity": {"id": "pay_WEBHOOK", "order_id": order_id}}
@@ -68,6 +69,15 @@ async def test_webhook_grants_entitlement(client, session, test_user):
     cohort = await session.get(Cohort, cohort_id)
     await session.refresh(cohort)
     assert cohort.seats_taken == 1
+
+    event_count = (
+        await session.execute(
+            select(func.count())
+            .select_from(PaymentEvent)
+            .where(PaymentEvent.razorpay_event_id == "evt_WEBHOOK")
+        )
+    ).scalar_one()
+    assert event_count == 1
 
 
 @pytest.mark.asyncio

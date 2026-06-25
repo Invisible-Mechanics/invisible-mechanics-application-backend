@@ -45,6 +45,10 @@ async def can_access_recorded(
 
     scope_clauses = [
         Entitlement.scope_type == "all_access",
+        and_(
+            Entitlement.scope_type == "recorded_lecture",
+            Entitlement.scope_id == lecture.id,
+        ),
         and_(Entitlement.scope_type == "cohort", Entitlement.scope_id == lecture.cohort_id),
     ]
 

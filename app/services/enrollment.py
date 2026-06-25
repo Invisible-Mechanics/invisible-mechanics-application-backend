@@ -1,17 +1,40 @@
-"""Idempotent entitlement granting for paid purchases (cohort enrollment & single class).
+"""Idempotent entitlement granting for paid purchases.
 
 Shared by both the /verify endpoint (browser happy path) and the webhook
 (server-to-server source of truth). Either path may arrive first; the second
 is a no-op. Cohort seat counting is oversell-safe via a single conditional UPDATE.
 """
 
+import json
 import uuid
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Cohort, Entitlement, Payment
+from app.models import Cohort, Entitlement, Payment, PaymentEvent
+
+
+def record_payment_event(
+    db: AsyncSession,
+    *,
+    payment: Payment | None,
+    event_type: str,
+    source: str,
+    payload: dict | None = None,
+    razorpay_event_id: str | None = None,
+) -> None:
+    db.add(
+        PaymentEvent(
+            payment_id=payment.id if payment else None,
+            razorpay_order_id=payment.razorpay_order_id if payment else None,
+            razorpay_payment_id=payment.razorpay_payment_id if payment else None,
+            razorpay_event_id=razorpay_event_id,
+            event_type=event_type,
+            source=source,
+            payload_json=json.dumps(payload, default=str) if payload is not None else None,
+        )
+    )
 
 
 async def _has_active_entitlement(
@@ -36,6 +59,8 @@ async def grant_entitlement(db: AsyncSession, payment: Payment) -> None:
         await grant_cohort_entitlement(db, payment)
     elif payment.scope_type == "class":
         await grant_class_entitlement(db, payment)
+    elif payment.scope_type == "recorded_lecture":
+        await grant_recorded_lecture_entitlement(db, payment)
     else:  # pragma: no cover - guard against a malformed payment row
         raise ValueError(f"unknown payment scope_type: {payment.scope_type}")
 
@@ -77,6 +102,13 @@ async def grant_cohort_entitlement(db: AsyncSession, payment: Payment) -> None:
         )
     )
     payment.status = "paid"
+    record_payment_event(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": "cohort", "scope_id": str(payment.scope_id)},
+    )
     try:
         await db.commit()
     except IntegrityError:
@@ -106,11 +138,52 @@ async def grant_class_entitlement(db: AsyncSession, payment: Payment) -> None:
         )
     )
     payment.status = "paid"
+    record_payment_event(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": "class", "scope_id": str(payment.scope_id)},
+    )
     try:
         await db.commit()
     except IntegrityError:
         # Lost the verify/webhook race (see grant_cohort_entitlement). The winner
         # already wrote the entitlement; absorb the duplicate as a no-op.
+        await db.rollback()
+        payment.status = "paid"
+        await db.commit()
+
+
+async def grant_recorded_lecture_entitlement(db: AsyncSession, payment: Payment) -> None:
+    """Grant a single recorded-lecture entitlement. Safe to call more than once."""
+    if await _has_active_entitlement(
+        db, payment.user_id, "recorded_lecture", payment.scope_id
+    ):
+        payment.status = "paid"
+        await db.commit()
+        return
+
+    db.add(
+        Entitlement(
+            user_id=payment.user_id,
+            scope_type="recorded_lecture",
+            scope_id=payment.scope_id,
+            source="razorpay",
+            status="active",
+        )
+    )
+    payment.status = "paid"
+    record_payment_event(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": "recorded_lecture", "scope_id": str(payment.scope_id)},
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
         await db.rollback()
         payment.status = "paid"
         await db.commit()

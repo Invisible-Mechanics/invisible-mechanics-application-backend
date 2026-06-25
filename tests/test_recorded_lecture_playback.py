@@ -70,6 +70,28 @@ async def test_playback_paid_allowed_with_cohort_entitlement(
 
 
 @pytest.mark.asyncio
+async def test_playback_paid_allowed_with_recorded_lecture_entitlement(
+    client, session, test_user, cohort
+):
+    lec = _lecture(
+        cohort.id, access_type="paid", price_single=Decimal("199.00"), stream_video_uid="v-5"
+    )
+    ent = Entitlement(
+        id=uuid.uuid4(),
+        user_id=test_user.id,
+        scope_type="recorded_lecture",
+        scope_id=lec.id,
+        source="razorpay",
+        status="active",
+    )
+    session.add_all([lec, ent])
+    await session.commit()
+
+    r = client.get(f"/lectures/{lec.id}/playback")
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
 async def test_playback_paid_allowed_with_all_access(client, session, test_user, cohort):
     lec = _lecture(
         cohort.id, access_type="paid", price_single=Decimal("199.00"), stream_video_uid="v-4"

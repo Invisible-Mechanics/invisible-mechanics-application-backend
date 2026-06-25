@@ -169,7 +169,7 @@ class ClassUpdate(BaseModel):
 # --- Entitlements ---
 class EntitlementOut(_ORM):
     id: uuid.UUID
-    scope_type: Literal["class", "cohort", "all_access"]
+    scope_type: Literal["class", "cohort", "recorded_lecture", "all_access"]
     scope_id: uuid.UUID | None
     source: str
     valid_until: datetime | None
@@ -220,6 +220,19 @@ class VerifyPaymentRequest(BaseModel):
 
 class VerifyPaymentResponse(BaseModel):
     status: Literal["enrolled"]
+
+
+class PurchaseOut(_ORM):
+    id: uuid.UUID
+    scope_type: Literal["class", "cohort", "recorded_lecture", "all_access"]
+    scope_id: uuid.UUID
+    razorpay_order_id: str
+    razorpay_payment_id: str | None
+    amount: int
+    currency: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
 
 
 # --- Recording attach (admin) + student playback ---

@@ -17,7 +17,7 @@ from decimal import Decimal
 import httpx
 
 from app.config import Settings, get_settings
-from app.models import Class, Cohort
+from app.models import Class, Cohort, RecordedLecture
 
 
 @dataclass(frozen=True)
@@ -121,8 +121,13 @@ def effective_price_paise(cohort: Cohort, *, now: datetime | None = None) -> int
     return int((rupees * 100).to_integral_value())
 
 
-def class_price_paise(klass: Class) -> int | None:
-    """Single-class price in paise. None when the class has no price (not purchasable)."""
-    if klass.price_single is None:
+def single_content_price_paise(content: Class | RecordedLecture) -> int | None:
+    """Single-content price in paise. None when there is no price."""
+    if content.price_single is None:
         return None
-    return int((klass.price_single * 100).to_integral_value())
+    return int((content.price_single * 100).to_integral_value())
+
+
+def class_price_paise(klass: Class) -> int | None:
+    """Single-class price in paise. None when the class has no price."""
+    return single_content_price_paise(klass)

@@ -28,6 +28,15 @@ uvicorn app.main:app --host 0.0.0.0 --port $PORT
 
 Set `WEB_ORIGIN` to the deployed frontend URL so CORS accepts browser requests.
 
+For Razorpay, set `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, and
+`RAZORPAY_WEBHOOK_SECRET`. Configure the Razorpay dashboard webhook URL as:
+
+```text
+https://your-backend-domain/webhooks/razorpay
+```
+
+Enable at least the `payment.captured` event.
+
 ## Required Production Env
 
 Copy `.env.example` into your deployment provider and fill the same values from local `.env`.
