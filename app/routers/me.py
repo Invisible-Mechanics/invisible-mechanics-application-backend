@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user
@@ -11,6 +12,7 @@ from app.schemas import EntitlementOut, ProfileUpdateIn, ProfileUpdateOut, UserO
 from app.services.session import issue_session_jwt
 
 router = APIRouter(prefix="/me", tags=["me"])
+PHONE_EMAIL_DOMAIN = "@phone.invisiblemechanics.com"
 
 
 @router.get("", response_model=UserOut)
@@ -29,6 +31,14 @@ async def update_me(
         raise HTTPException(status_code=404, detail="user not found")
 
     updates = body.model_dump(exclude_unset=True)
+    if body.email is not None:
+        new_email = str(body.email).strip().lower()
+        if user.email.endswith(PHONE_EMAIL_DOMAIN):
+            user.email = new_email
+            user.email_verified_at = None
+        elif new_email != user.email:
+            raise HTTPException(status_code=409, detail="email is already set")
+
     for field in ("name", "target_exam", "grade"):
         if field in updates:
             setattr(user, field, updates[field])
@@ -37,7 +47,11 @@ async def update_me(
         user.terms_accepted_at = datetime.now(UTC)
         user.consent_version = body.consent_version
 
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="email is already in use") from None
     await db.refresh(user)
     token, expires_at = issue_session_jwt(
         user.id,

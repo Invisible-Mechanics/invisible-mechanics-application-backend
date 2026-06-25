@@ -116,3 +116,34 @@ async def test_profile_consent_is_idempotent(client, session, test_user):
     assert user.name == "Student Updated"
     assert user.grade == "12"
     assert user.consent_version == "25 June 2026"
+
+
+@pytest.mark.asyncio
+async def test_phone_placeholder_email_can_be_replaced(client, session, test_user):
+    user_id = test_user.id
+    test_user.email = "919876543210@phone.invisiblemechanics.com"
+    test_user.phone = "919876543210"
+    await session.commit()
+
+    r = client.patch(
+        "/me",
+        json={
+            "email": "real.student@example.com",
+            "name": "Phone User",
+            "target_exam": "jee",
+            "grade": "11",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["user"]["email"] == "real.student@example.com"
+
+    session.expire_all()
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    assert user.email == "real.student@example.com"
+    assert user.phone == "919876543210"
+
+
+@pytest.mark.asyncio
+async def test_real_email_cannot_be_changed_from_profile(client, test_user):
+    r = client.patch("/me", json={"email": "changed@example.com"})
+    assert r.status_code == 409

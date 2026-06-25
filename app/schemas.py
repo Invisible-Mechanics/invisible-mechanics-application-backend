@@ -24,6 +24,7 @@ class UserOut(_ORM):
 
 
 class ProfileUpdateIn(BaseModel):
+    email: EmailStr | None = None
     name: str | None = Field(default=None, min_length=1, max_length=200)
     target_exam: Literal["jee", "neet"] | None = None
     grade: Literal["11", "12", "dropper"] | None = None
