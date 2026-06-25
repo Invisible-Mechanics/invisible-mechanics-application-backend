@@ -2,7 +2,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.models import Cohort, Payment
 
@@ -80,3 +80,26 @@ async def test_order_unpriced_cohort_409(client, session):
     r = client.post(f"/enrollments/cohorts/{cohort.id}/order")
     assert r.status_code == 409
     assert "purchasable" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_order_still_works_if_payment_audit_table_missing(client, session):
+    await session.execute(text("DROP TABLE payment_events"))
+    await session.commit()
+
+    cohort = Cohort(
+        id=uuid.uuid4(),
+        title="Audit fallback cohort",
+        price=Decimal("999.00"),
+        status="open",
+    )
+    session.add(cohort)
+    await session.commit()
+
+    r = client.post(f"/enrollments/cohorts/{cohort.id}/order")
+    assert r.status_code == 200, r.text
+
+    payment = (
+        await session.execute(select(Payment).where(Payment.scope_id == cohort.id))
+    ).scalar_one()
+    assert payment.status == "created"

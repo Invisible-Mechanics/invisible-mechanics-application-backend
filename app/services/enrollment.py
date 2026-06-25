@@ -6,13 +6,16 @@ is a no-op. Cohort seat counting is oversell-safe via a single conditional UPDAT
 """
 
 import json
+import logging
 import uuid
 
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Cohort, Entitlement, Payment, PaymentEvent
+
+logger = logging.getLogger(__name__)
 
 
 def record_payment_event(
@@ -35,6 +38,36 @@ def record_payment_event(
             payload_json=json.dumps(payload, default=str) if payload is not None else None,
         )
     )
+
+
+async def record_payment_event_best_effort(
+    db: AsyncSession,
+    *,
+    payment: Payment | None,
+    event_type: str,
+    source: str,
+    payload: dict | None = None,
+    razorpay_event_id: str | None = None,
+) -> bool:
+    """Write payment audit logs without breaking checkout/access if logging fails."""
+    try:
+        record_payment_event(
+            db,
+            payment=payment,
+            event_type=event_type,
+            source=source,
+            payload=payload,
+            razorpay_event_id=razorpay_event_id,
+        )
+        await db.commit()
+        return True
+    except IntegrityError:
+        await db.rollback()
+        return False
+    except SQLAlchemyError:
+        await db.rollback()
+        logger.exception("payment audit logging failed for event_type=%s", event_type)
+        return False
 
 
 async def _has_active_entitlement(
@@ -102,13 +135,6 @@ async def grant_cohort_entitlement(db: AsyncSession, payment: Payment) -> None:
         )
     )
     payment.status = "paid"
-    record_payment_event(
-        db,
-        payment=payment,
-        event_type="entitlement_granted",
-        source="system",
-        payload={"scope_type": "cohort", "scope_id": str(payment.scope_id)},
-    )
     try:
         await db.commit()
     except IntegrityError:
@@ -138,13 +164,6 @@ async def grant_class_entitlement(db: AsyncSession, payment: Payment) -> None:
         )
     )
     payment.status = "paid"
-    record_payment_event(
-        db,
-        payment=payment,
-        event_type="entitlement_granted",
-        source="system",
-        payload={"scope_type": "class", "scope_id": str(payment.scope_id)},
-    )
     try:
         await db.commit()
     except IntegrityError:
@@ -174,16 +193,30 @@ async def grant_recorded_lecture_entitlement(db: AsyncSession, payment: Payment)
         )
     )
     payment.status = "paid"
-    record_payment_event(
-        db,
-        payment=payment,
-        event_type="entitlement_granted",
-        source="system",
-        payload={"scope_type": "recorded_lecture", "scope_id": str(payment.scope_id)},
-    )
     try:
         await db.commit()
     except IntegrityError:
         await db.rollback()
         payment.status = "paid"
         await db.commit()
+    await record_payment_event_best_effort(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": "recorded_lecture", "scope_id": str(payment.scope_id)},
+    )
+    await record_payment_event_best_effort(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": "class", "scope_id": str(payment.scope_id)},
+    )
+    await record_payment_event_best_effort(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": "cohort", "scope_id": str(payment.scope_id)},
+    )

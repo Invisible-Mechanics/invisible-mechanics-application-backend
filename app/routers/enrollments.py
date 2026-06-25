@@ -17,7 +17,7 @@ from datetime import UTC, datetime
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_user
@@ -31,7 +31,11 @@ from app.schemas import (
     VerifyPaymentResponse,
 )
 from app.services.access import can_access, can_access_recorded
-from app.services.enrollment import grant_entitlement, record_payment_event
+from app.services.enrollment import (
+    grant_entitlement,
+    record_payment_event,
+    record_payment_event_best_effort,
+)
 from app.services.razorpay import (
     RazorpayClient,
     class_price_paise,
@@ -109,22 +113,7 @@ async def create_cohort_order(
         currency=order.currency,
         status="created",
     )
-    db.add(payment)
-    try:
-        await db.flush()
-        record_payment_event(
-            db,
-            payment=payment,
-            event_type="order_created",
-            source="api",
-            payload={"scope_type": "cohort", "scope_id": str(cohort_id)},
-        )
-        await db.commit()
-    except IntegrityError:
-        # Same order id already recorded (deterministic fake id / retry) — reuse it.
-        await db.rollback()
-
-    return CreateOrderResponse(
+    response = CreateOrderResponse(
         order_id=order.order_id,
         amount=order.amount,
         currency=order.currency,
@@ -134,6 +123,23 @@ async def create_cohort_order(
         prefill_email=user.email,
         prefill_contact=user.phone,
     )
+
+    db.add(payment)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Same order id already recorded (deterministic fake id / retry) — reuse it.
+        await db.rollback()
+    else:
+        await record_payment_event_best_effort(
+            db,
+            payment=payment,
+            event_type="order_created",
+            source="api",
+            payload={"scope_type": "cohort", "scope_id": str(cohort_id)},
+        )
+
+    return response
 
 
 @router.post("/classes/{class_id}/order", response_model=CreateOrderResponse)
@@ -180,21 +186,7 @@ async def create_class_order(
         currency=order.currency,
         status="created",
     )
-    db.add(payment)
-    try:
-        await db.flush()
-        record_payment_event(
-            db,
-            payment=payment,
-            event_type="order_created",
-            source="api",
-            payload={"scope_type": "class", "scope_id": str(class_id)},
-        )
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-
-    return CreateOrderResponse(
+    response = CreateOrderResponse(
         order_id=order.order_id,
         amount=order.amount,
         currency=order.currency,
@@ -204,6 +196,22 @@ async def create_class_order(
         prefill_email=user.email,
         prefill_contact=user.phone,
     )
+
+    db.add(payment)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+    else:
+        await record_payment_event_best_effort(
+            db,
+            payment=payment,
+            event_type="order_created",
+            source="api",
+            payload={"scope_type": "class", "scope_id": str(class_id)},
+        )
+
+    return response
 
 
 @router.get("/purchases", response_model=list[PurchaseOut])
@@ -260,21 +268,7 @@ async def create_recorded_lecture_order(
         currency=order.currency,
         status="created",
     )
-    db.add(payment)
-    try:
-        await db.flush()
-        record_payment_event(
-            db,
-            payment=payment,
-            event_type="order_created",
-            source="api",
-            payload={"scope_type": "recorded_lecture", "scope_id": str(lecture_id)},
-        )
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-
-    return CreateOrderResponse(
+    response = CreateOrderResponse(
         order_id=order.order_id,
         amount=order.amount,
         currency=order.currency,
@@ -284,6 +278,22 @@ async def create_recorded_lecture_order(
         prefill_email=user.email,
         prefill_contact=user.phone,
     )
+
+    db.add(payment)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+    else:
+        await record_payment_event_best_effort(
+            db,
+            payment=payment,
+            event_type="order_created",
+            source="api",
+            payload={"scope_type": "recorded_lecture", "scope_id": str(lecture_id)},
+        )
+
+    return response
 
 
 @router.post("/verify", response_model=VerifyPaymentResponse)
@@ -312,14 +322,14 @@ async def verify_payment(
         raise HTTPException(status_code=403, detail="order does not belong to you")
 
     payment.razorpay_payment_id = body.razorpay_payment_id
-    record_payment_event(
+    await grant_entitlement(db, payment)
+    await record_payment_event_best_effort(
         db,
         payment=payment,
         event_type="payment_verified",
         source="api",
         payload={"razorpay_payment_id": body.razorpay_payment_id},
     )
-    await grant_entitlement(db, payment)
     return VerifyPaymentResponse(status="enrolled")
 
 
@@ -357,6 +367,8 @@ async def razorpay_webhook(
         except IntegrityError:
             await db.rollback()
             return {"ok": True, "duplicate": True}
+        except SQLAlchemyError:
+            await db.rollback()
 
     if event_name not in ("payment.captured", "order.paid"):
         await db.commit()
@@ -382,12 +394,12 @@ async def razorpay_webhook(
 
     if payment_id:
         payment.razorpay_payment_id = payment_id
-    record_payment_event(
+    await grant_entitlement(db, payment)
+    await record_payment_event_best_effort(
         db,
         payment=payment,
         event_type=event_name,
         source="webhook",
         payload={"razorpay_order_id": order_id, "razorpay_payment_id": payment_id},
     )
-    await grant_entitlement(db, payment)
     return {"ok": True}
