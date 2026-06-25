@@ -208,6 +208,38 @@ async def test_phone_signup_binds_verified_email_without_new_account(
 
 
 @pytest.mark.asyncio
+async def test_email_bind_recovers_phone_from_placeholder_email_when_phone_is_missing(
+    client, session, test_user, monkeypatch
+):
+    fake_email = _FakeEmail()
+    app.dependency_overrides[get_email_client] = lambda: fake_email
+    monkeypatch.setattr(me_router, "_generate_code", lambda: "123456")
+
+    user_id = test_user.id
+    test_user.email = "919399039501@phone.invisiblemechanics.com"
+    test_user.phone = None
+    await session.commit()
+
+    r = client.post("/me/contact/request-otp", json={"email": "real.student@example.com"})
+    assert r.status_code == 200, r.text
+    assert r.json()["dev_code"] == "123456"
+
+    v = client.post(
+        "/me/contact/verify-otp",
+        json={"email": "real.student@example.com", "code": "123456"},
+    )
+    assert v.status_code == 200, v.text
+    assert v.json()["user"]["email"] == "real.student@example.com"
+    assert v.json()["user"]["phone"] == "919399039501"
+
+    session.expire_all()
+    user = (await session.execute(select(User).where(User.id == user_id))).scalar_one()
+    assert user.email == "real.student@example.com"
+    assert user.phone == "919399039501"
+    assert user.phone_verified_at is not None
+
+
+@pytest.mark.asyncio
 async def test_email_signup_binds_verified_phone_without_new_account(
     client, session, test_user, monkeypatch
 ):

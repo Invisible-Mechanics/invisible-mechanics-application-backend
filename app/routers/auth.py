@@ -243,14 +243,27 @@ async def _consume_and_issue(
     row.consumed_at = now
     await db.flush()
 
-    user = (
-        await db.execute(select(User).where(User.email == row.email))
-    ).scalar_one_or_none()
+    user = None
+    if row.phone:
+        user = (
+            await db.execute(select(User).where(User.phone == row.phone))
+        ).scalar_one_or_none()
+    if user is None:
+        user = (
+            await db.execute(select(User).where(User.email == row.email))
+        ).scalar_one_or_none()
     if user is None:
         # Shouldn't happen — /auth/request upserts the user — but be defensive.
-        user = User(email=row.email, role="student", source="magic_link")
+        user = User(
+            email=row.email,
+            phone=row.phone,
+            role="student",
+            source="sms_otp" if row.phone else "magic_link",
+        )
         db.add(user)
         await db.flush()
+    elif row.phone and user.phone is None:
+        user.phone = row.phone
 
     token, expires_at = issue_session_jwt(
         user.id,

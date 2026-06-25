@@ -38,6 +38,13 @@ router = APIRouter(prefix="/me", tags=["me"])
 PHONE_EMAIL_DOMAIN = "@phone.invisiblemechanics.com"
 
 
+def _phone_from_placeholder_email(email: str) -> str | None:
+    if not email.endswith(PHONE_EMAIL_DOMAIN):
+        return None
+    phone = email[: -len(PHONE_EMAIL_DOMAIN)]
+    return phone if phone.isdigit() and len(phone) >= 10 else None
+
+
 def _is_onboarded(user: User) -> bool:
     return bool(user.name and user.phone and user.target_exam and user.grade and user.terms_accepted_at)
 
@@ -142,6 +149,7 @@ async def request_contact_otp(
     is_sms = body.phone is not None
     phone = _normalize_phone(body.phone) if body.phone else None
     email = user.email if is_sms else _normalize_email(str(body.email))
+    bind_phone = phone if is_sms else (user.phone or _phone_from_placeholder_email(user.email))
     channel = "sms" if is_sms else "email"
 
     if is_sms:
@@ -153,6 +161,11 @@ async def request_contact_otp(
     else:
         if not user.email.endswith(PHONE_EMAIL_DOMAIN) and email != user.email:
             raise HTTPException(status_code=409, detail="email is already set")
+        if user.phone is None:
+            recovered_phone = _phone_from_placeholder_email(user.email)
+            if recovered_phone:
+                user.phone = recovered_phone
+                user.phone_verified_at = user.phone_verified_at or now
         taken = (
             await db.execute(select(User.id).where(User.email == email, User.id != user.id))
         ).scalar_one_or_none()
@@ -174,7 +187,7 @@ async def request_contact_otp(
         AuthToken(
             channel=channel,
             email=email,
-            phone=phone,
+            phone=bind_phone,
             token_hash=_sha256(token),
             code_hash=_sha256(code),
             next_path=_bind_marker(user),
@@ -236,6 +249,11 @@ async def verify_contact_otp(
     else:
         if not user.email.endswith(PHONE_EMAIL_DOMAIN) and email != user.email:
             raise HTTPException(status_code=409, detail="email is already set")
+        if user.phone is None:
+            recovered_phone = row.phone or _phone_from_placeholder_email(user.email)
+            if recovered_phone:
+                user.phone = recovered_phone
+                user.phone_verified_at = user.phone_verified_at or now
         taken = (
             await db.execute(select(User.id).where(User.email == email, User.id != user.id))
         ).scalar_one_or_none()
