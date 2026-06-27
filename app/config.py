@@ -29,7 +29,9 @@ class Settings(BaseSettings):
     msg91_auth_key: str = ""
     msg91_sender_id: str = "INVMEC"
     msg91_template_id: str = "6a3bfbc30cdff537840d5983"
+    msg91_enrollment_template_id: str = "6a3fe5e3e1a64bb4ca04d0f2"
     msg91_otp_expiry_min: int = 15
+    masterclass_live_at_text: str = "6 July 2026, 6:00 PM IST"
 
     # Razorpay (one-time payments). Test keys start with rzp_test_.
     razorpay_key_id: str = ""

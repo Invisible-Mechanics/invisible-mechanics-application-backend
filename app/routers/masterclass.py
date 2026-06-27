@@ -11,6 +11,9 @@ from app.schemas import (
     MasterclassEventOut,
     MasterclassEventSummaryOut,
 )
+from app.services.enrollment_notifications import (
+    send_masterclass_enrollment_notification_best_effort,
+)
 
 router = APIRouter(prefix="/masterclass", tags=["masterclass"])
 admin_router = APIRouter(prefix="/admin/masterclass", tags=["admin", "masterclass"])
@@ -55,6 +58,7 @@ async def track_masterclass_registration_completed(
     db.add(event)
     await db.commit()
     await db.refresh(event)
+    await send_masterclass_enrollment_notification_best_effort(user)
     return event
 
 

@@ -36,6 +36,9 @@ from app.services.enrollment import (
     record_payment_event,
     record_payment_event_best_effort,
 )
+from app.services.enrollment_notifications import (
+    send_cohort_enrollment_notification_best_effort,
+)
 from app.services.invoice import send_invoice_email_best_effort
 from app.services.razorpay import (
     RazorpayClient,
@@ -334,6 +337,7 @@ async def verify_payment(
     )
     if payment.status == "paid" and not was_paid:
         await send_invoice_email_best_effort(db, payment)
+        await send_cohort_enrollment_notification_best_effort(db, payment)
     return VerifyPaymentResponse(status="enrolled")
 
 
@@ -409,4 +413,5 @@ async def razorpay_webhook(
     )
     if payment.status == "paid" and not was_paid:
         await send_invoice_email_best_effort(db, payment)
+        await send_cohort_enrollment_notification_best_effort(db, payment)
     return {"ok": True}

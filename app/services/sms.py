@@ -20,6 +20,16 @@ class SMSClient:
     async def send_otp(self, *, phone: str, code: str) -> SMSResult:
         raise NotImplementedError
 
+    async def send_enrollment(
+        self,
+        *,
+        phone: str,
+        student_name: str,
+        program_title: str,
+        program_details: str,
+    ) -> SMSResult:
+        raise NotImplementedError
+
 
 @dataclass
 class FakeSMSClient(SMSClient):
@@ -29,28 +39,81 @@ class FakeSMSClient(SMSClient):
         self.sent.append({"phone": phone, "code": code})
         return SMSResult(ok=True)
 
+    async def send_enrollment(
+        self,
+        *,
+        phone: str,
+        student_name: str,
+        program_title: str,
+        program_details: str,
+    ) -> SMSResult:
+        self.sent.append(
+            {
+                "phone": phone,
+                "student_name": student_name,
+                "program_title": program_title,
+                "program_details": program_details,
+            }
+        )
+        return SMSResult(ok=True)
+
 
 class MSG91SMSClient(SMSClient):
     def __init__(self, settings: Settings):
         self._settings = settings
 
     async def send_otp(self, *, phone: str, code: str) -> SMSResult:
+        return await self._send_flow(
+            phone=phone,
+            template_id=self._settings.msg91_template_id,
+            purpose="otp",
+            variables={"var1": code},
+        )
+
+    async def send_enrollment(
+        self,
+        *,
+        phone: str,
+        student_name: str,
+        program_title: str,
+        program_details: str,
+    ) -> SMSResult:
+        return await self._send_flow(
+            phone=phone,
+            template_id=self._settings.msg91_enrollment_template_id,
+            purpose="enrollment",
+            variables={
+                "var1": student_name,
+                "var2": program_title,
+                "var3": program_details,
+            },
+        )
+
+    async def _send_flow(
+        self,
+        *,
+        phone: str,
+        template_id: str,
+        purpose: str,
+        variables: dict[str, str],
+    ) -> SMSResult:
         missing = [
             key
             for key, value in {
                 "MSG91_AUTH_KEY": self._settings.msg91_auth_key,
-                "MSG91_TEMPLATE_ID": self._settings.msg91_template_id,
+                "MSG91_TEMPLATE_ID": template_id,
                 "MSG91_SENDER_ID": self._settings.msg91_sender_id,
             }.items()
             if not value
         ]
         if missing:
             message = f"missing required MSG91 env vars: {', '.join(missing)}"
-            logger.error("msg91 otp config error: %s", message)
+            logger.error("msg91 %s config error: %s", purpose, message)
             return SMSResult(ok=False, error=message, response_body={"message": message})
 
         response_body: object
         try:
+            recipient = {"mobiles": phone, **variables}
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.post(
                     "https://control.msg91.com/api/v5/flow/",
@@ -59,15 +122,10 @@ class MSG91SMSClient(SMSClient):
                         "authkey": self._settings.msg91_auth_key,
                     },
                     json={
-                        "template_id": self._settings.msg91_template_id,
+                        "template_id": template_id,
                         "sender": self._settings.msg91_sender_id,
                         "short_url": "0",
-                        "recipients": [
-                            {
-                                "mobiles": phone,
-                                "var1": code,
-                            }
-                        ],
+                        "recipients": [recipient],
                     },
                 )
             try:
@@ -75,11 +133,12 @@ class MSG91SMSClient(SMSClient):
             except ValueError:
                 response_body = {"raw": response.text}
 
-            logger.info("MSG91 OTP RESPONSE STATUS %s", response.status_code)
+            logger.info("MSG91 %s RESPONSE STATUS %s", purpose.upper(), response.status_code)
             logger.info(
-                "MSG91 OTP RESPONSE BODY phone_tail=%s template_id=%s body=%s",
+                "MSG91 %s RESPONSE BODY phone_tail=%s template_id=%s body=%s",
+                purpose.upper(),
                 phone[-4:],
-                self._settings.msg91_template_id,
+                template_id,
                 response_body,
             )
 
@@ -104,9 +163,10 @@ class MSG91SMSClient(SMSClient):
             return SMSResult(ok=True, response_body=response_body)
         except Exception as exc:
             logger.exception(
-                "MSG91 OTP API error phone_tail=%s template_id=%s",
+                "MSG91 %s API error phone_tail=%s template_id=%s",
+                purpose.upper(),
                 phone[-4:],
-                self._settings.msg91_template_id,
+                template_id,
             )
             return SMSResult(
                 ok=False,
