@@ -82,7 +82,6 @@ async def _send_enrollment_sms_best_effort(
     try:
         result = await get_sms_client().send_enrollment(
             phone=user.phone,
-            student_name=_student_name(user),
             program_title=program_title,
             program_details=program_details,
         )
@@ -99,7 +98,7 @@ async def _send_enrollment_sms_best_effort(
 
 async def send_masterclass_enrollment_notification_best_effort(user: User) -> None:
     settings = get_settings()
-    program_title = "Invisible Mechanics Live Masterclass"
+    program_title = settings.masterclass_topic_title
     program_details = settings.masterclass_live_at_text
     await _send_enrollment_email_best_effort(
         user=user,

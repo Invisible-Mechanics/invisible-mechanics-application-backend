@@ -26,11 +26,10 @@ class _FakeEnrollmentSMS:
     def __init__(self):
         self.sent = []
 
-    async def send_enrollment(self, *, phone, student_name, program_title, program_details):
+    async def send_enrollment(self, *, phone, program_title, program_details):
         self.sent.append(
             {
                 "phone": phone,
-                "student_name": student_name,
                 "program_title": program_title,
                 "program_details": program_details,
             }
@@ -114,9 +113,10 @@ async def test_existing_user_masterclass_confirmation_is_idempotent(
     assert len(rows) == 1
     assert len(fake_email.sent) == 1
     assert fake_email.sent[0]["to"] == "student@example.com"
+    assert "The Art of Problem Solving" in fake_email.sent[0]["subject"]
     assert len(fake_sms.sent) == 1
     assert fake_sms.sent[0]["phone"] == "919876543210"
-    assert fake_sms.sent[0]["program_title"] == "Invisible Mechanics Live Masterclass"
+    assert fake_sms.sent[0]["program_title"] == "The Art of Problem Solving"
 
 
 def test_admin_can_read_masterclass_summary_and_events(admin_client):

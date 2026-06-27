@@ -24,7 +24,6 @@ class SMSClient:
         self,
         *,
         phone: str,
-        student_name: str,
         program_title: str,
         program_details: str,
     ) -> SMSResult:
@@ -43,14 +42,12 @@ class FakeSMSClient(SMSClient):
         self,
         *,
         phone: str,
-        student_name: str,
         program_title: str,
         program_details: str,
     ) -> SMSResult:
         self.sent.append(
             {
                 "phone": phone,
-                "student_name": student_name,
                 "program_title": program_title,
                 "program_details": program_details,
             }
@@ -74,7 +71,6 @@ class MSG91SMSClient(SMSClient):
         self,
         *,
         phone: str,
-        student_name: str,
         program_title: str,
         program_details: str,
     ) -> SMSResult:
@@ -83,8 +79,8 @@ class MSG91SMSClient(SMSClient):
             template_id=self._settings.msg91_enrollment_template_id,
             purpose="enrollment",
             variables={
-                "var1": student_name,
-                "var2": program_title,
+                "var1": program_title,
+                "var2": program_details,
                 "var3": program_details,
             },
         )

@@ -33,11 +33,10 @@ class _EnrollmentSMS:
     def __init__(self):
         self.sent = []
 
-    async def send_enrollment(self, *, phone, student_name, program_title, program_details):
+    async def send_enrollment(self, *, phone, program_title, program_details):
         self.sent.append(
             {
                 "phone": phone,
-                "student_name": student_name,
                 "program_title": program_title,
                 "program_details": program_details,
             }
