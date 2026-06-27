@@ -93,7 +93,7 @@ async def _send_enrollment_sms_best_effort(
 
 async def send_masterclass_enrollment_notification_best_effort(user: User) -> None:
     settings = get_settings()
-    program_title = settings.masterclass_topic_title
+    program_title = "Masterclass"
     program_details = settings.masterclass_live_at_text
     await _send_enrollment_email_best_effort(
         user=user,
