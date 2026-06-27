@@ -23,6 +23,50 @@ class UserOut(_ORM):
     consent_version: str | None = None
 
 
+class AdminUserRow(UserOut):
+    created_at: datetime
+
+
+class AdminUserCreate(BaseModel):
+    email: EmailStr
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    phone: str | None = Field(default=None, min_length=10, max_length=20)
+    role: Literal["student", "admin"] = "admin"
+
+
+class AdminUserRoleUpdate(BaseModel):
+    role: Literal["student", "admin"]
+
+
+class MasterclassEventCreate(BaseModel):
+    visitor_id: str = Field(min_length=8, max_length=80)
+    event_type: Literal["enroll_now_clicked", "registration_completed"]
+    source: str | None = Field(default=None, max_length=80)
+    path: str | None = Field(default=None, max_length=500)
+
+
+class MasterclassEventOut(_ORM):
+    id: uuid.UUID
+    visitor_id: str
+    user_id: uuid.UUID | None = None
+    event_type: str
+    source: str | None = None
+    path: str | None = None
+    user_agent: str | None = None
+    created_at: datetime
+
+
+class MasterclassEventAdminOut(MasterclassEventOut):
+    user_email: str | None = None
+    user_name: str | None = None
+    user_phone: str | None = None
+
+
+class MasterclassEventSummaryOut(BaseModel):
+    enroll_now_clicked: int
+    registration_completed: int
+
+
 class ProfileUpdateIn(BaseModel):
     email: EmailStr | None = None
     name: str | None = Field(default=None, min_length=1, max_length=200)

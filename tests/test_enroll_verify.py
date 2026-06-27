@@ -5,9 +5,27 @@ import pytest
 from sqlalchemy import func, select
 
 from app.models import Cohort, Entitlement, Payment
+import app.services.invoice as invoice_service
 from app.services.razorpay import _sign
 
 SECRET = "test-secret"  # matches conftest RAZORPAY_KEY_SECRET
+
+
+class _InvoiceEmail:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, *, to, subject, html, text, attachments=None):
+        self.sent.append(
+            {
+                "to": to,
+                "subject": subject,
+                "html": html,
+                "text": text,
+                "attachments": attachments or [],
+            }
+        )
+        return type("Result", (), {"ok": True, "id": "fake", "error": None})()
 
 
 async def _make_order(client, session, **cohort_kwargs) -> str:
@@ -61,6 +79,29 @@ async def test_verify_grants_entitlement_and_increments_seats(client, session):
     await session.refresh(payment)
     assert payment.status == "paid"
     assert payment.razorpay_payment_id == "pay_TEST"
+
+
+@pytest.mark.asyncio
+async def test_verify_sends_invoice_pdf_email(client, session, monkeypatch):
+    fake_email = _InvoiceEmail()
+    monkeypatch.setattr(invoice_service, "get_email_client", lambda: fake_email)
+    order_id, _ = await _make_order(client, session, title="Receipt cohort")
+    sig = _sign(f"{order_id}|pay_INV", SECRET)
+
+    r = client.post(
+        "/enrollments/verify",
+        json={
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": "pay_INV",
+            "razorpay_signature": sig,
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(fake_email.sent) == 1
+    sent = fake_email.sent[0]
+    assert sent["to"] == "student@example.com"
+    assert sent["attachments"][0].filename.endswith(".pdf")
+    assert sent["attachments"][0].content.startswith(b"%PDF-")
 
 
 @pytest.mark.asyncio

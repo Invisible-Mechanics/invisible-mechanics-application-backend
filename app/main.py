@@ -17,6 +17,7 @@ from app.routers import (
     cron,
     enrollments,
     health,
+    masterclass,
     me,
     recorded,
     stream_webhook,
@@ -50,12 +51,14 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+app.include_router(masterclass.router)
 app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(classes.router)
 app.include_router(cohorts.router)
 app.include_router(recorded.router)
 app.include_router(admin.router)
+app.include_router(masterclass.admin_router)
 app.include_router(admin_recorded.router)
 app.include_router(cron.router)
 app.include_router(enrollments.router)

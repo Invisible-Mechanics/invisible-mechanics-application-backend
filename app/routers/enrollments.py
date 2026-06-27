@@ -36,6 +36,7 @@ from app.services.enrollment import (
     record_payment_event,
     record_payment_event_best_effort,
 )
+from app.services.invoice import send_invoice_email_best_effort
 from app.services.razorpay import (
     RazorpayClient,
     class_price_paise,
@@ -321,6 +322,7 @@ async def verify_payment(
     if payment.user_id != user.id:
         raise HTTPException(status_code=403, detail="order does not belong to you")
 
+    was_paid = payment.status == "paid"
     payment.razorpay_payment_id = body.razorpay_payment_id
     await grant_entitlement(db, payment)
     await record_payment_event_best_effort(
@@ -330,6 +332,8 @@ async def verify_payment(
         source="api",
         payload={"razorpay_payment_id": body.razorpay_payment_id},
     )
+    if payment.status == "paid" and not was_paid:
+        await send_invoice_email_best_effort(db, payment)
     return VerifyPaymentResponse(status="enrolled")
 
 
@@ -392,6 +396,7 @@ async def razorpay_webhook(
         await db.commit()
         return {"ok": True, "ignored": True}
 
+    was_paid = payment.status == "paid"
     if payment_id:
         payment.razorpay_payment_id = payment_id
     await grant_entitlement(db, payment)
@@ -402,4 +407,6 @@ async def razorpay_webhook(
         source="webhook",
         payload={"razorpay_order_id": order_id, "razorpay_payment_id": payment_id},
     )
+    if payment.status == "paid" and not was_paid:
+        await send_invoice_email_best_effort(db, payment)
     return {"ok": True}

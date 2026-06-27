@@ -2,13 +2,16 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import require_admin
 from app.db import get_db
 from app.models import Class, Cohort, User
 from app.schemas import (
+    AdminUserCreate,
+    AdminUserRow,
+    AdminUserRoleUpdate,
     ClassCreate,
     ClassOut,
     ClassStatusUpdate,
@@ -18,12 +21,73 @@ from app.schemas import (
     CohortUpdate,
     RecordingAttach,
     StreamKeysOut,
+    UserOut,
 )
 from app.services.stream_live import StreamLiveClient, get_stream_live_client
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+# ---------- User admin ----------
+
+
+@router.post("/users", response_model=UserOut, status_code=201)
+async def create_user(
+    body: AdminUserCreate,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    existing = (
+        await db.execute(select(User).where(User.email == str(body.email).strip().lower()))
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="user already exists")
+    user = User(
+        email=str(body.email).strip().lower(),
+        name=body.name,
+        phone=body.phone,
+        role=body.role,
+        source="admin",
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@router.get("/users", response_model=list[AdminUserRow])
+async def list_users(
+    q: str = "",
+    db: AsyncSession = Depends(get_db),
+) -> list[User]:
+    stmt = select(User).order_by(User.created_at.desc()).limit(50)
+    needle = q.strip()
+    if needle:
+        like = f"%{needle.lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(User.email).like(like),
+                func.lower(func.coalesce(User.name, "")).like(like),
+                func.coalesce(User.phone, "").like(f"%{needle}%"),
+            )
+        )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+@router.patch("/users/{user_id}/role", response_model=UserOut)
+async def update_user_role(
+    user_id: uuid.UUID,
+    body: AdminUserRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    user.role = body.role
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.post("/classes", response_model=ClassOut, status_code=201)

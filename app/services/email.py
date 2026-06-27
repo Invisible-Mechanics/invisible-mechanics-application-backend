@@ -4,6 +4,7 @@ Supabase magic-link emails go through SMTP separately, configured in the
 Supabase dashboard (Auth → SMTP) to point at Resend.
 """
 
+import base64
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,11 +22,24 @@ class SendResult:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class EmailAttachment:
+    filename: str
+    content: bytes
+    content_type: str = "application/octet-stream"
+
+
 class EmailClient:
     """Abstract interface. Tests inject a FakeEmailClient that records sends."""
 
     async def send(
-        self, *, to: str, subject: str, html: str, text: str
+        self,
+        *,
+        to: str,
+        subject: str,
+        html: str,
+        text: str,
+        attachments: list[EmailAttachment] | None = None,
     ) -> SendResult:  # pragma: no cover - interface
         raise NotImplementedError
 
@@ -36,8 +50,24 @@ class FakeEmailClient(EmailClient):
     def __init__(self) -> None:
         self.sent: list[dict[str, str]] = []
 
-    async def send(self, *, to: str, subject: str, html: str, text: str) -> SendResult:
-        self.sent.append({"to": to, "subject": subject, "html": html, "text": text})
+    async def send(
+        self,
+        *,
+        to: str,
+        subject: str,
+        html: str,
+        text: str,
+        attachments: list[EmailAttachment] | None = None,
+    ) -> SendResult:
+        self.sent.append(
+            {
+                "to": to,
+                "subject": subject,
+                "html": html,
+                "text": text,
+                "attachments": attachments or [],
+            }
+        )
         return SendResult(id=f"fake-{len(self.sent)}", ok=True)
 
 
@@ -45,18 +75,36 @@ class ResendEmailClient(EmailClient):
     def __init__(self, settings: Settings):
         self._settings = settings
 
-    async def send(self, *, to: str, subject: str, html: str, text: str) -> SendResult:
+    async def send(
+        self,
+        *,
+        to: str,
+        subject: str,
+        html: str,
+        text: str,
+        attachments: list[EmailAttachment] | None = None,
+    ) -> SendResult:
+        payload = {
+            "from": self._settings.mail_from,
+            "to": [to],
+            "subject": subject,
+            "html": html,
+            "text": text,
+        }
+        if attachments:
+            payload["attachments"] = [
+                {
+                    "filename": item.filename,
+                    "content": base64.b64encode(item.content).decode("ascii"),
+                    "content_type": item.content_type,
+                }
+                for item in attachments
+            ]
         async with httpx.AsyncClient(timeout=15) as http:
             resp = await http.post(
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {self._settings.resend_api_key}"},
-                json={
-                    "from": self._settings.mail_from,
-                    "to": [to],
-                    "subject": subject,
-                    "html": html,
-                    "text": text,
-                },
+                json=payload,
             )
             if resp.status_code >= 400:
                 return SendResult(id=None, ok=False, error=f"{resp.status_code} {resp.text}")
