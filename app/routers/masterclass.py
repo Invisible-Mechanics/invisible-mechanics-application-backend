@@ -47,10 +47,78 @@ async def track_masterclass_registration_completed(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(current_user),
 ) -> MasterclassEvent:
+    existing_confirmed = (
+        await db.execute(
+            select(MasterclassEvent)
+            .where(
+                MasterclassEvent.user_id == user.id,
+                MasterclassEvent.event_type == "enrollment_confirmed",
+            )
+            .order_by(MasterclassEvent.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     event = MasterclassEvent(
         visitor_id=body.visitor_id,
         user_id=user.id,
         event_type="registration_completed",
+        source=body.source,
+        path=body.path,
+        user_agent=user_agent,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    if existing_confirmed is None:
+        await _confirm_masterclass_enrollment(
+            body=body,
+            user_agent=user_agent,
+            db=db,
+            user=user,
+        )
+    return event
+
+
+@router.post("/events/enrollment-confirmed", response_model=MasterclassEventOut, status_code=201)
+async def confirm_masterclass_enrollment(
+    body: MasterclassEventCreate,
+    user_agent: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_user),
+) -> MasterclassEvent:
+    return await _confirm_masterclass_enrollment(
+        body=body,
+        user_agent=user_agent,
+        db=db,
+        user=user,
+    )
+
+
+async def _confirm_masterclass_enrollment(
+    *,
+    body: MasterclassEventCreate,
+    user_agent: str | None,
+    db: AsyncSession,
+    user: User,
+) -> MasterclassEvent:
+    existing = (
+        await db.execute(
+            select(MasterclassEvent)
+            .where(
+                MasterclassEvent.user_id == user.id,
+                MasterclassEvent.event_type == "enrollment_confirmed",
+            )
+            .order_by(MasterclassEvent.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        return existing
+
+    event = MasterclassEvent(
+        visitor_id=body.visitor_id,
+        user_id=user.id,
+        event_type="enrollment_confirmed",
         source=body.source,
         path=body.path,
         user_agent=user_agent,

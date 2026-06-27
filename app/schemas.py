@@ -40,7 +40,11 @@ class AdminUserRoleUpdate(BaseModel):
 
 class MasterclassEventCreate(BaseModel):
     visitor_id: str = Field(min_length=8, max_length=80)
-    event_type: Literal["enroll_now_clicked", "registration_completed"]
+    event_type: Literal[
+        "enroll_now_clicked",
+        "registration_completed",
+        "enrollment_confirmed",
+    ]
     source: str | None = Field(default=None, max_length=80)
     path: str | None = Field(default=None, max_length=500)
 

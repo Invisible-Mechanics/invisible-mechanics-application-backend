@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 
 from app.models import Cohort, Entitlement, Payment
 import app.services.invoice as invoice_service
+import app.services.enrollment_notifications as notification_service
 from app.services.razorpay import _sign
 
 SECRET = "test-secret"  # matches conftest RAZORPAY_KEY_SECRET
@@ -26,6 +27,22 @@ class _InvoiceEmail:
             }
         )
         return type("Result", (), {"ok": True, "id": "fake", "error": None})()
+
+
+class _EnrollmentSMS:
+    def __init__(self):
+        self.sent = []
+
+    async def send_enrollment(self, *, phone, student_name, program_title, program_details):
+        self.sent.append(
+            {
+                "phone": phone,
+                "student_name": student_name,
+                "program_title": program_title,
+                "program_details": program_details,
+            }
+        )
+        return type("Result", (), {"ok": True, "error": None, "response_body": {}})()
 
 
 async def _make_order(client, session, **cohort_kwargs) -> str:
@@ -102,6 +119,41 @@ async def test_verify_sends_invoice_pdf_email(client, session, monkeypatch):
     assert sent["to"] == "student@example.com"
     assert sent["attachments"][0].filename.endswith(".pdf")
     assert sent["attachments"][0].content.startswith(b"%PDF-")
+
+
+@pytest.mark.asyncio
+async def test_verify_sends_cohort_enrollment_email_and_sms(
+    client, session, test_user, monkeypatch
+):
+    test_user.name = "Paid Student"
+    test_user.phone = "919876543210"
+    await session.commit()
+    invoice_email = _InvoiceEmail()
+    enrollment_email = _InvoiceEmail()
+    enrollment_sms = _EnrollmentSMS()
+    monkeypatch.setattr(invoice_service, "get_email_client", lambda: invoice_email)
+    monkeypatch.setattr(notification_service, "get_email_client", lambda: enrollment_email)
+    monkeypatch.setattr(notification_service, "get_sms_client", lambda: enrollment_sms)
+
+    order_id, _ = await _make_order(client, session, title="Physics Cohort")
+    sig = _sign(f"{order_id}|pay_NOTIFY", SECRET)
+
+    r = client.post(
+        "/enrollments/verify",
+        json={
+            "razorpay_order_id": order_id,
+            "razorpay_payment_id": "pay_NOTIFY",
+            "razorpay_signature": sig,
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert len(invoice_email.sent) == 1
+    assert len(enrollment_email.sent) == 1
+    assert enrollment_email.sent[0]["to"] == "student@example.com"
+    assert "Physics Cohort" in enrollment_email.sent[0]["subject"]
+    assert len(enrollment_sms.sent) == 1
+    assert enrollment_sms.sent[0]["phone"] == "919876543210"
+    assert enrollment_sms.sent[0]["program_title"] == "Physics Cohort"
 
 
 @pytest.mark.asyncio

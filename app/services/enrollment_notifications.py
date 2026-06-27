@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.models import Cohort, Payment, User
+from app.services.email import get_email_client
 from app.services.sms import get_sms_client
 
 logger = logging.getLogger(__name__)
@@ -33,26 +34,83 @@ def _cohort_details(cohort: Cohort) -> str:
     return " | ".join(parts) if parts else "Enrollment confirmed"
 
 
-async def send_masterclass_enrollment_notification_best_effort(user: User) -> None:
-    if not user.phone:
-        logger.info("masterclass enrollment notification skipped user_id=%s reason=no_phone", user.id)
-        return
+async def _send_enrollment_email_best_effort(
+    *,
+    user: User,
+    program_title: str,
+    program_details: str,
+) -> None:
     try:
-        settings = get_settings()
-        result = await get_sms_client().send_enrollment(
-            phone=user.phone,
-            student_name=_student_name(user),
-            program_title="Invisible Mechanics Live Masterclass",
-            program_details=settings.masterclass_live_at_text,
+        email = get_email_client()
+        student_name = _student_name(user)
+        result = await email.send(
+            to=user.email,
+            subject=f"Enrollment confirmed - {program_title}",
+            html=(
+                f"<p>Hi {student_name},</p>"
+                f"<p>Your enrollment for <strong>{program_title}</strong> is confirmed.</p>"
+                f"<p>{program_details}</p>"
+                "<p>Regards,<br>Invisible Mechanics</p>"
+            ),
+            text=(
+                f"Hi {student_name},\n\n"
+                f"Your enrollment for {program_title} is confirmed.\n"
+                f"{program_details}\n\n"
+                "Regards,\nInvisible Mechanics"
+            ),
         )
         if not result.ok:
             logger.warning(
-                "masterclass enrollment notification failed user_id=%s error=%s",
+                "enrollment email failed user_id=%s program=%s error=%s",
                 user.id,
+                program_title,
                 result.error,
             )
     except Exception:  # noqa: BLE001
-        logger.exception("masterclass enrollment notification crashed user_id=%s", user.id)
+        logger.exception("enrollment email crashed user_id=%s", user.id)
+
+
+async def _send_enrollment_sms_best_effort(
+    *,
+    user: User,
+    program_title: str,
+    program_details: str,
+) -> None:
+    if not user.phone:
+        logger.info("enrollment sms skipped user_id=%s reason=no_phone", user.id)
+        return
+    try:
+        result = await get_sms_client().send_enrollment(
+            phone=user.phone,
+            student_name=_student_name(user),
+            program_title=program_title,
+            program_details=program_details,
+        )
+        if not result.ok:
+            logger.warning(
+                "enrollment sms failed user_id=%s program=%s error=%s",
+                user.id,
+                program_title,
+                result.error,
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("enrollment sms crashed user_id=%s", user.id)
+
+
+async def send_masterclass_enrollment_notification_best_effort(user: User) -> None:
+    settings = get_settings()
+    program_title = "Invisible Mechanics Live Masterclass"
+    program_details = settings.masterclass_live_at_text
+    await _send_enrollment_email_best_effort(
+        user=user,
+        program_title=program_title,
+        program_details=program_details,
+    )
+    await _send_enrollment_sms_best_effort(
+        user=user,
+        program_title=program_title,
+        program_details=program_details,
+    )
 
 
 async def send_cohort_enrollment_notification_best_effort(
@@ -66,21 +124,16 @@ async def send_cohort_enrollment_notification_best_effort(
         cohort = await db.get(Cohort, payment.scope_id)
         if user is None or cohort is None:
             return
-        if not user.phone:
-            logger.info("cohort enrollment notification skipped user_id=%s reason=no_phone", user.id)
-            return
-        result = await get_sms_client().send_enrollment(
-            phone=user.phone,
-            student_name=_student_name(user),
+        program_details = _cohort_details(cohort)
+        await _send_enrollment_email_best_effort(
+            user=user,
             program_title=cohort.title,
-            program_details=_cohort_details(cohort),
+            program_details=program_details,
         )
-        if not result.ok:
-            logger.warning(
-                "cohort enrollment notification failed payment_id=%s user_id=%s error=%s",
-                payment.id,
-                user.id,
-                result.error,
-            )
+        await _send_enrollment_sms_best_effort(
+            user=user,
+            program_title=cohort.title,
+            program_details=program_details,
+        )
     except Exception:  # noqa: BLE001
         logger.exception("cohort enrollment notification crashed payment_id=%s", payment.id)
