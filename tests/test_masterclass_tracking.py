@@ -113,10 +113,10 @@ async def test_existing_user_masterclass_confirmation_is_idempotent(
     assert len(rows) == 1
     assert len(fake_email.sent) == 1
     assert fake_email.sent[0]["to"] == "student@example.com"
-    assert "The Art of Problem Solving" in fake_email.sent[0]["subject"]
+    assert "The Art of Problem Solving - 1" in fake_email.sent[0]["subject"]
     assert len(fake_sms.sent) == 1
     assert fake_sms.sent[0]["phone"] == "919876543210"
-    assert fake_sms.sent[0]["program_title"] == "The Art of Problem Solving"
+    assert fake_sms.sent[0]["program_title"] == "The Art of Problem Solving - 1"
 
 
 def test_admin_can_read_masterclass_summary_and_events(admin_client):

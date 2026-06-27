@@ -13,10 +13,6 @@ from app.services.sms import get_sms_client
 logger = logging.getLogger(__name__)
 
 
-def _student_name(user: User) -> str:
-    return user.name or user.email.split("@", 1)[0] or "Student"
-
-
 def _format_date(value: date | None) -> str | None:
     return value.strftime("%d %b %Y") if value else None
 
@@ -42,18 +38,17 @@ async def _send_enrollment_email_best_effort(
 ) -> None:
     try:
         email = get_email_client()
-        student_name = _student_name(user)
         result = await email.send(
             to=user.email,
             subject=f"Enrollment confirmed - {program_title}",
             html=(
-                f"<p>Hi {student_name},</p>"
+                "<p>Hi,</p>"
                 f"<p>Your enrollment for <strong>{program_title}</strong> is confirmed.</p>"
                 f"<p>{program_details}</p>"
                 "<p>Regards,<br>Invisible Mechanics</p>"
             ),
             text=(
-                f"Hi {student_name},\n\n"
+                "Hi,\n\n"
                 f"Your enrollment for {program_title} is confirmed.\n"
                 f"{program_details}\n\n"
                 "Regards,\nInvisible Mechanics"

@@ -80,7 +80,7 @@ class MSG91SMSClient(SMSClient):
             purpose="enrollment",
             variables={
                 "var1": program_title,
-                "var2": program_details,
+                "var2": "Invisible Mechanics",
                 "var3": program_details,
             },
         )

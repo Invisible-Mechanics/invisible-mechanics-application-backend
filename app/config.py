@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     msg91_template_id: str = "6a3bfbc30cdff537840d5983"
     msg91_enrollment_template_id: str = "6a3fe5e3e1a64bb4ca04d0f2"
     msg91_otp_expiry_min: int = 15
-    masterclass_topic_title: str = "The Art of Problem Solving"
+    masterclass_topic_title: str = "The Art of Problem Solving - 1"
     masterclass_live_at_text: str = "6 July 2026, 6:00 PM IST"
 
     # Razorpay (one-time payments). Test keys start with rzp_test_.
