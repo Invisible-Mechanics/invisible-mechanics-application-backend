@@ -273,3 +273,52 @@ async def test_email_signup_binds_verified_phone_without_new_account(
     assert user.email == "student@example.com"
     assert user.phone == "919399039501"
     assert user.phone_verified_at is not None
+
+@pytest.mark.asyncio
+async def test_contact_otp_immediate_resend_is_rate_limited(client, session, test_user, monkeypatch):
+    fake_sms = _FakeSms()
+    app.dependency_overrides[get_sms_client] = lambda: fake_sms
+    monkeypatch.setattr(me_router, "_generate_code", lambda: "123456")
+
+    test_user.phone = None
+    await session.commit()
+
+    first = client.post("/me/contact/request-otp", json={"phone": "9399039501"})
+    second = client.post("/me/contact/request-otp", json={"phone": "9399039501"})
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 429, second.text
+    assert "60 seconds" in second.json()["detail"]
+    assert len(fake_sms.sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_contact_otp_hourly_limit_caps_email_sends(client, session, test_user, monkeypatch):
+    fake_email = _FakeEmail()
+    app.dependency_overrides[get_email_client] = lambda: fake_email
+    codes = iter(["111111", "222222", "333333", "444444", "555555", "666666"])
+    monkeypatch.setattr(me_router, "_generate_code", lambda: next(codes))
+
+    test_user.email = "919399039501@phone.invisiblemechanics.com"
+    test_user.phone = "919399039501"
+    await session.commit()
+
+    for index in range(5):
+        r = client.post("/me/contact/request-otp", json={"email": "real.student@example.com"})
+        assert r.status_code == 200, r.text
+        token = (
+            await session.execute(
+                select(me_router.AuthToken)
+                .where(me_router.AuthToken.email == "real.student@example.com")
+                .order_by(me_router.AuthToken.created_at.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        token.created_at = datetime.now(timezone.utc) - timedelta(seconds=61)
+        await session.commit()
+        assert len(fake_email.sent) == index + 1
+
+    blocked = client.post("/me/contact/request-otp", json={"email": "real.student@example.com"})
+    assert blocked.status_code == 429, blocked.text
+    assert "one hour" in blocked.json()["detail"]
+    assert len(fake_email.sent) == 5

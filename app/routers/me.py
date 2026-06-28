@@ -2,7 +2,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,8 @@ from app.services.sms import SMSClient, get_sms_client
 
 router = APIRouter(prefix="/me", tags=["me"])
 PHONE_EMAIL_DOMAIN = "@phone.invisiblemechanics.com"
+CONTACT_OTP_MIN_RESEND_INTERVAL_SEC = 60
+CONTACT_OTP_MAX_PER_HOUR = 5
 
 
 def _phone_from_placeholder_email(email: str) -> str | None:
@@ -152,6 +154,42 @@ async def request_contact_otp(
     bind_phone = phone if is_sms else (user.phone or _phone_from_placeholder_email(user.email))
     channel = "sms" if is_sms else "email"
 
+    target_value = phone if is_sms else email
+    hourly_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(AuthToken)
+            .where(AuthToken.channel == channel)
+            .where(AuthToken.next_path == _bind_marker(user))
+            .where(AuthToken.phone == target_value if is_sms else AuthToken.email == target_value)
+            .where(AuthToken.created_at >= now - timedelta(hours=1))
+        )
+    ).scalar_one()
+    if int(hourly_count) >= CONTACT_OTP_MAX_PER_HOUR:
+        raise HTTPException(
+            status_code=429,
+            detail="too many OTP requests; try again in one hour",
+        )
+
+    recent = (
+        await db.execute(
+            select(AuthToken)
+            .where(AuthToken.channel == channel)
+            .where(AuthToken.next_path == _bind_marker(user))
+            .where(AuthToken.phone == target_value if is_sms else AuthToken.email == target_value)
+            .order_by(AuthToken.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if recent is not None:
+        created_at = recent.created_at
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+        if (now - created_at).total_seconds() < CONTACT_OTP_MIN_RESEND_INTERVAL_SEC:
+            raise HTTPException(
+                status_code=429,
+                detail="please wait 60 seconds before requesting another OTP",
+            )
     if is_sms:
         taken = (
             await db.execute(select(User.id).where(User.phone == phone, User.id != user.id))
@@ -288,3 +326,6 @@ async def list_my_entitlements(
         .order_by(Entitlement.created_at.desc())
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+
