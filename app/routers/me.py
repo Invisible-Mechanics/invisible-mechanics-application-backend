@@ -239,8 +239,10 @@ async def request_contact_otp(
         if failure is not None:
             raise HTTPException(status_code=502, detail="could not send the code, try again")
     else:
-        await _send_login_email(email_client, to=email, token=token, code=code, next_path=None)
-    return ContactOtpRequestOut(dev_code=code)
+        sent = await _send_login_email(email_client, to=email, token=token, code=code, next_path=None)
+        if not sent:
+            raise HTTPException(status_code=502, detail="could not send the code, try again")
+    return ContactOtpRequestOut(dev_code=code if settings.expose_dev_codes else None)
 
 
 @router.post("/contact/verify-otp", response_model=ProfileUpdateOut)

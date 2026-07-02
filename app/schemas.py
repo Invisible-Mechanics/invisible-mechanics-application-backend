@@ -215,11 +215,14 @@ class ClassOut(_ORM):
     access_type: Literal["free", "paid"]
     cohort_id: uuid.UUID
     price_single: Decimal | None
-    stream_video_uid: str | None
     status: Literal["scheduled", "live", "ended"]
     thumbnail_url: str | None
     target_exam: Literal["jee", "neet"] | None
     target_year: int | None
+
+
+class AdminClassOut(ClassOut):
+    stream_video_uid: str | None
 
 
 class ClassCreate(BaseModel):
@@ -357,10 +360,13 @@ class RecordedLectureOut(_ORM):
     access_type: Literal["free", "paid"]
     cohort_id: uuid.UUID
     price_single: Decimal | None
-    stream_video_uid: str
     thumbnail_url: str | None
     target_exam: Literal["jee", "neet"] | None
     target_year: int | None
+
+
+class AdminRecordedLectureOut(RecordedLectureOut):
+    stream_video_uid: str
 
 
 class RecordedLectureCreate(BaseModel):

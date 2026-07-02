@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("APP_JWT_SECRET", "test-secret")
+os.environ.setdefault("EXPOSE_DEV_CODES", "true")
 # Env vars take precedence over .env, so these override the real Razorpay keys
 # during tests, giving deterministic signatures. Key id stays empty -> Fake client.
 os.environ.setdefault("RAZORPAY_KEY_ID", "")

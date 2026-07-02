@@ -8,8 +8,8 @@ from app.auth import require_admin
 from app.db import get_db
 from app.models import Cohort, RecordedLecture, User
 from app.schemas import (
+    AdminRecordedLectureOut,
     RecordedLectureCreate,
-    RecordedLectureOut,
     RecordedLectureUpdate,
 )
 
@@ -20,7 +20,7 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=list[RecordedLectureOut])
+@router.get("", response_model=list[AdminRecordedLectureOut])
 async def list_recorded_lectures(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
@@ -29,7 +29,18 @@ async def list_recorded_lectures(
     return list((await db.execute(stmt)).scalars().all())
 
 
-@router.post("", response_model=RecordedLectureOut, status_code=201)
+@router.get("/{lecture_id}", response_model=AdminRecordedLectureOut)
+async def get_recorded_lecture(
+    lecture_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> RecordedLecture:
+    lecture = await db.get(RecordedLecture, lecture_id)
+    if lecture is None:
+        raise HTTPException(status_code=404, detail="recorded lecture not found")
+    return lecture
+
+
+@router.post("", response_model=AdminRecordedLectureOut, status_code=201)
 async def create_recorded_lecture(
     body: RecordedLectureCreate,
     db: AsyncSession = Depends(get_db),
@@ -45,7 +56,7 @@ async def create_recorded_lecture(
     return lecture
 
 
-@router.patch("/{lecture_id}", response_model=RecordedLectureOut)
+@router.patch("/{lecture_id}", response_model=AdminRecordedLectureOut)
 async def update_recorded_lecture(
     lecture_id: uuid.UUID,
     body: RecordedLectureUpdate,

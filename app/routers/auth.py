@@ -44,6 +44,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 MIN_RESEND_INTERVAL_SEC = 30
 # Max wrong-code submissions per outstanding token before it's burned.
 MAX_CODE_ATTEMPTS = 5
+MAX_REQUESTS_PER_HOUR = 10
 
 
 def _sha256(value: str) -> str:
@@ -94,7 +95,7 @@ async def _send_login_email(
     token: str,
     code: str,
     next_path: str | None,
-) -> None:
+) -> bool:
     settings = get_settings()
     qs = f"?t={quote(token)}"
     if next_path:
@@ -115,6 +116,8 @@ async def _send_login_email(
     )
     if not result.ok:
         logger.warning("login email send failed to=%s error=%s", to, result.error)
+        return False
+    return True
 
 
 async def _send_login_sms(
@@ -150,6 +153,17 @@ async def request_login(
     email = _phone_email(phone) if phone else _normalize_email(str(body.email))
     next_path = _safe_next(body.next)
     now = datetime.now(UTC)
+
+    hourly_count = (
+        await db.execute(
+            select(AuthToken.id)
+            .where(AuthToken.phone == phone if is_sms else AuthToken.email == email)
+            .where(AuthToken.channel == ("sms" if is_sms else "email"))
+            .where(AuthToken.created_at >= now - timedelta(hours=1))
+        )
+    ).scalars().all()
+    if len(hourly_count) >= MAX_REQUESTS_PER_HOUR:
+        raise HTTPException(status_code=429, detail="too many OTP requests; try again later")
 
     # Rate limit: deny if there's an unconsumed, unexpired token created in the
     # last MIN_RESEND_INTERVAL_SEC. Always return ok=True externally so we don't
@@ -225,14 +239,18 @@ async def request_login(
             await db.commit()
             return failure
     else:
-        await _send_login_email(
+        sent = await _send_login_email(
             email_client,
             to=email,
             token=token,
             code=code,
             next_path=next_path,
         )
-    return LoginRequestOut(dev_code=code)
+        if not sent:
+            row.consumed_at = datetime.now(UTC)
+            await db.commit()
+            raise HTTPException(status_code=502, detail="could not send the code, try again")
+    return LoginRequestOut(dev_code=code if settings.expose_dev_codes else None)
 
 
 async def _consume_and_issue(

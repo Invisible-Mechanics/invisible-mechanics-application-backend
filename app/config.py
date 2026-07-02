@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     magic_link_ttl_min: int = 15
     # How long a session JWT (cookie) stays valid after verify.
     session_ttl_hours: int = 2
+    # Never expose OTPs unless a developer opts in explicitly.
+    expose_dev_codes: bool = False
 
     web_origin: str = "http://localhost:3000"
 

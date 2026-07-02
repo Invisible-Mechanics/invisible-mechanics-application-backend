@@ -12,8 +12,8 @@ from app.schemas import (
     AdminUserCreate,
     AdminUserRow,
     AdminUserRoleUpdate,
+    AdminClassOut,
     ClassCreate,
-    ClassOut,
     ClassStatusUpdate,
     ClassUpdate,
     CohortCreate,
@@ -90,7 +90,7 @@ async def update_user_role(
     return user
 
 
-@router.post("/classes", response_model=ClassOut, status_code=201)
+@router.post("/classes", response_model=AdminClassOut, status_code=201)
 async def create_class(
     body: ClassCreate,
     db: AsyncSession = Depends(get_db),
@@ -123,7 +123,15 @@ async def create_class(
     return klass
 
 
-@router.patch("/classes/{class_id}/status", response_model=ClassOut)
+@router.get("/classes/{class_id}", response_model=AdminClassOut)
+async def get_admin_class(class_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Class:
+    klass = await db.get(Class, class_id)
+    if klass is None:
+        raise HTTPException(status_code=404, detail="lecture not found")
+    return klass
+
+
+@router.patch("/classes/{class_id}/status", response_model=AdminClassOut)
 async def update_class_status(
     class_id: uuid.UUID,
     body: ClassStatusUpdate,
@@ -138,7 +146,7 @@ async def update_class_status(
     return klass
 
 
-@router.patch("/classes/{class_id}", response_model=ClassOut)
+@router.patch("/classes/{class_id}", response_model=AdminClassOut)
 async def update_class(
     class_id: uuid.UUID,
     body: ClassUpdate,
@@ -265,7 +273,7 @@ async def delete_cohort(
 # ---------- Recording admin (live classes) ----------
 
 
-@router.put("/classes/{class_id}/recording", response_model=ClassOut)
+@router.put("/classes/{class_id}/recording", response_model=AdminClassOut)
 async def attach_recording(
     class_id: uuid.UUID,
     body: RecordingAttach,
@@ -283,7 +291,7 @@ async def attach_recording(
 
 @router.post(
     "/classes/{class_id}/recording/attach-from-live-input",
-    response_model=ClassOut,
+    response_model=AdminClassOut,
 )
 async def attach_recording_from_live_input(
     class_id: uuid.UUID,

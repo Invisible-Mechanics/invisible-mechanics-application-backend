@@ -96,6 +96,13 @@ async def grant_entitlement(db: AsyncSession, payment: Payment) -> None:
         await grant_recorded_lecture_entitlement(db, payment)
     else:  # pragma: no cover - guard against a malformed payment row
         raise ValueError(f"unknown payment scope_type: {payment.scope_type}")
+    await record_payment_event_best_effort(
+        db,
+        payment=payment,
+        event_type="entitlement_granted",
+        source="system",
+        payload={"scope_type": payment.scope_type, "scope_id": str(payment.scope_id)},
+    )
 
 
 async def grant_cohort_entitlement(db: AsyncSession, payment: Payment) -> None:
@@ -199,24 +206,3 @@ async def grant_recorded_lecture_entitlement(db: AsyncSession, payment: Payment)
         await db.rollback()
         payment.status = "paid"
         await db.commit()
-    await record_payment_event_best_effort(
-        db,
-        payment=payment,
-        event_type="entitlement_granted",
-        source="system",
-        payload={"scope_type": "recorded_lecture", "scope_id": str(payment.scope_id)},
-    )
-    await record_payment_event_best_effort(
-        db,
-        payment=payment,
-        event_type="entitlement_granted",
-        source="system",
-        payload={"scope_type": "class", "scope_id": str(payment.scope_id)},
-    )
-    await record_payment_event_best_effort(
-        db,
-        payment=payment,
-        event_type="entitlement_granted",
-        source="system",
-        payload={"scope_type": "cohort", "scope_id": str(payment.scope_id)},
-    )

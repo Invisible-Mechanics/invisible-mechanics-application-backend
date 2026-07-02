@@ -325,6 +325,13 @@ async def verify_payment(
     if payment.user_id != user.id:
         raise HTTPException(status_code=403, detail="order does not belong to you")
 
+    if (
+        payment.status == "paid"
+        and payment.razorpay_payment_id
+        and payment.razorpay_payment_id != body.razorpay_payment_id
+    ):
+        raise HTTPException(status_code=409, detail="order already paid with another payment")
+
     was_paid = payment.status == "paid"
     payment.razorpay_payment_id = body.razorpay_payment_id
     await grant_entitlement(db, payment)
@@ -351,13 +358,15 @@ async def razorpay_webhook(
 
     secret = get_settings().razorpay_webhook_secret
     if not secret:
-        # No webhook configured yet (pre-dashboard window). Ignore safely.
-        return {"ok": False, "reason": "webhook secret not configured"}
+        raise HTTPException(status_code=503, detail="webhook secret not configured")
 
     if not verify_webhook_signature(raw_body=raw, signature=signature, secret=secret):
         raise HTTPException(status_code=400, detail="invalid webhook signature")
 
-    event = json.loads(raw)
+    try:
+        event = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="invalid webhook body") from exc
     event_name = str(event.get("event", "unknown"))
     event_id = event.get("id")
 
